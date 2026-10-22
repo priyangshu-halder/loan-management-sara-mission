@@ -20,3 +20,4 @@ export interface AuthenticatedUser {
   isSuperAdmin: boolean;
   isOrgAdmin: boolean;
 }
+

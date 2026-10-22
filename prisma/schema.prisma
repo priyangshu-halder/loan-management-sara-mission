@@ -75,6 +75,7 @@ model User {
   userRoles          UserRole[]
   userScopes         UserScope[]
   sessions           Session[]
+  passwordResetTokens PasswordResetToken[]
   auditEvents        AuditEvent[] @relation("ActorAuditEvents")
 
   @@unique([organizationId, username])
@@ -203,5 +204,19 @@ model IdempotencyRecord {
   @@unique([organizationId, operation, idempotencyKey])
   @@index([expiresAt])
   @@map("idempotency_records")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isUsed])
+  @@map("password_reset_tokens")
 }
 

@@ -29,3 +29,4 @@ export const sessionCookieOptions = {
   path: "/",
   maxAge: Math.floor(SESSION_DURATION_MS / 1000),
 };
+
