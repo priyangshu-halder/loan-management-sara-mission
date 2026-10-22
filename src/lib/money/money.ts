@@ -152,3 +152,4 @@ export class Money {
     return this.amount.lessThanOrEqualTo(other.amount);
   }
 }
+

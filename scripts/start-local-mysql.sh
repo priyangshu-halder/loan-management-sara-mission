@@ -37,3 +37,4 @@ fi
 # Ensure dev database exists
 mysql --socket="$SOCKET" -u root -e "CREATE DATABASE IF NOT EXISTS finance_dev;"
 echo "Database finance_dev is ready."
+

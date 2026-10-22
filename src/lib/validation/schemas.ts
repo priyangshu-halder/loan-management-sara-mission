@@ -55,3 +55,4 @@ export const createUserSchema = z.object({
   roleCodes: z.array(z.string()).min(1, "At least one role must be assigned"),
   branchId: uuidSchema.optional().nullable(),
 });
+

@@ -75,3 +75,4 @@ export class InvariantViolationError extends AppError {
     super(`Accounting/Financial invariant violated: ${message}`, "INVARIANT_VIOLATION", 500);
   }
 }
+

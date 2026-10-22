@@ -57,3 +57,4 @@ describe("Money utility", () => {
     expect(a.equals(c)).toBe(true);
   });
 });
+

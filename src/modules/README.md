@@ -17,3 +17,4 @@ Following the modular monolith structure defined in `docs/ARCHITECTURE.md`:
 ## Rules
 - Cross-module financial mutations must go through domain services within a single database transaction.
 - UI components and route handlers must never write directly to cross-module database tables.
+
