@@ -1,0 +1,206 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  status    String   @default("ACTIVE") // ACTIVE, SUSPENDED, DEACTIVATED
+  currency  String   @default("INR")
+  timezone  String   @default("Asia/Kolkata")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branches         Branch[]
+  businessSettings BusinessSetting[]
+  users            User[]
+  roles            Role[]
+  auditEvents      AuditEvent[]
+  idempotencyKeys  IdempotencyRecord[]
+
+  @@map("organizations")
+}
+
+model Branch {
+  id             String       @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  status         String       @default("ACTIVE")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userScopes     UserScope[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
+  @@map("branches")
+}
+
+model BusinessSetting {
+  id             String       @id @default(uuid())
+  organizationId String
+  key            String
+  value          String       @db.Text
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, key])
+  @@map("business_settings")
+}
+
+model User {
+  id                 String       @id @default(uuid())
+  organizationId     String
+  username           String
+  email              String
+  passwordHash       String
+  fullName           String
+  status             String       @default("ACTIVE") // ACTIVE, SUSPENDED, DEACTIVATED
+  mustChangePassword Boolean      @default(false)
+  lastLoginAt        DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userRoles          UserRole[]
+  userScopes         UserScope[]
+  sessions           Session[]
+  auditEvents        AuditEvent[] @relation("ActorAuditEvents")
+
+  @@unique([organizationId, username])
+  @@unique([organizationId, email])
+  @@index([organizationId, status])
+  @@map("users")
+}
+
+model Role {
+  id             String           @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  description    String?
+  isSystem       Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  userRoles      UserRole[]
+  rolePermissions RolePermission[]
+
+  @@unique([organizationId, code])
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  code            String           @unique
+  module          String
+  description     String
+  createdAt       DateTime         @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+model UserScope {
+  id        String   @id @default(uuid())
+  userId    String
+  branchId  String?
+  scopeType String   // ORGANIZATION, BRANCH
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, branchId, scopeType])
+  @@map("user_scopes")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRevoked])
+  @@map("sessions")
+}
+
+model AuditEvent {
+  id             String       @id @default(uuid())
+  organizationId String
+  actorId        String?
+  action         String
+  entityType     String
+  entityId       String?
+  metadata       String?      @db.Text
+  ipAddress      String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor          User?        @relation("ActorAuditEvents", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, action, createdAt])
+  @@map("audit_events")
+}
+
+model IdempotencyRecord {
+  id              String       @id @default(uuid())
+  organizationId  String
+  operation       String
+  idempotencyKey  String
+  status          String       // PENDING, COMPLETED, FAILED
+  responsePayload String?      @db.Text
+  createdAt       DateTime     @default(now())
+  expiresAt       DateTime
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, operation, idempotencyKey])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
