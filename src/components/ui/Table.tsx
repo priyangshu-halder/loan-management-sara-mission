@@ -122,3 +122,4 @@ export function TableEmptyState({ message = "No records found" }: { message?: st
     </div>
   );
 }
+
