@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { seedAccountingData } from "./seed-accounting";
 
 const prisma = new PrismaClient();
 
@@ -184,6 +185,9 @@ async function main() {
   }
 
   console.log(`Seeded default admin user: ${adminUser.username} (${adminUser.email})`);
+
+  // Seed Accounting Foundation
+  await seedAccountingData();
 }
 
 main()

@@ -12,13 +12,14 @@ export const DEFAULT_CURRENCY = "INR";
 export const DECIMAL_SCALE = 4; // Storage precision DECIMAL(19, 4)
 export const DISPLAY_SCALE = 2; // UI presentation precision
 
-export type MoneyInput = Decimal | string | number;
+export type MoneyInput = Decimal | string | number | { toString(): string };
 
 /**
  * Ensures a value is safely parsed into a Decimal without floating point corruption.
  * Rejects NaN, Infinity, and invalid string formats.
+ * Transparently supports Prisma.Decimal and custom Decimal-like objects.
  */
-export function toDecimal(value: MoneyInput): Decimal {
+export function toDecimal(value: unknown): Decimal {
   if (value instanceof Decimal) {
     return value;
   }
@@ -34,6 +35,14 @@ export function toDecimal(value: MoneyInput): Decimal {
       throw new TypeError(`Invalid decimal string: "${value}"`);
     }
     return new Decimal(trimmed);
+  }
+  if (typeof value === "object" && value !== null) {
+    if (typeof (value as { toString?: unknown }).toString === "function") {
+      const str = (value as { toString(): string }).toString();
+      if (str !== "" && !Number.isNaN(Number(str))) {
+        return new Decimal(str);
+      }
+    }
   }
   throw new TypeError(`Unsupported type for Decimal conversion: ${typeof value}`);
 }

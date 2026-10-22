@@ -23,6 +23,25 @@ model Organization {
   roles            Role[]
   auditEvents      AuditEvent[]
   idempotencyKeys  IdempotencyRecord[]
+  customers        Customer[]
+  groups           Group[]
+  customerGroups   CustomerGroup[]
+  loanSchemes      LoanScheme[]
+  loanApplications LoanApplication[]
+  loanAccounts     LoanAccount[]
+  loanDisbursements LoanDisbursement[]
+  loanClosures     LoanClosure[]
+  savingsAccounts  SavingsAccount[]
+  savingsTransactions SavingsTransaction[]
+  depositProducts  DepositProduct[]
+  termDepositAccounts TermDepositAccount[]
+  collectionReceipts CollectionReceipt[]
+  collectionAllocations CollectionReceiptAllocation[]
+  chartOfAccounts  ChartOfAccount[]
+  fiscalPeriods    FiscalPeriod[]
+  journalEntries   JournalEntry[]
+  cashAccounts     CashAccount[]
+  expenses         Expense[]
 
   @@map("organizations")
 }
@@ -38,6 +57,11 @@ model Branch {
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   userScopes     UserScope[]
+  customers      Customer[]
+  groups         Group[]
+  journalEntries JournalEntry[]
+  cashAccounts   CashAccount[]
+  expenses       Expense[]
 
   @@unique([organizationId, code])
   @@index([organizationId, status])
@@ -74,9 +98,11 @@ model User {
   organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   userRoles          UserRole[]
   userScopes         UserScope[]
-  sessions           Session[]
-  passwordResetTokens PasswordResetToken[]
-  auditEvents        AuditEvent[] @relation("ActorAuditEvents")
+  sessions             Session[]
+  passwordResetTokens  PasswordResetToken[]
+  auditEvents          AuditEvent[] @relation("ActorAuditEvents")
+  postedJournalEntries JournalEntry[]
+  closedFiscalPeriods  FiscalPeriod[] @relation("ClosedFiscalPeriods")
 
   @@unique([organizationId, username])
   @@unique([organizationId, email])
@@ -154,6 +180,72 @@ model UserScope {
   @@map("user_scopes")
 }
 
+model Customer {
+  id             String         @id @default(uuid())
+  organizationId  String
+  branchId       String?
+  customerCode   String
+  fullName       String
+  phone          String
+  email          String?
+  status         String         @default("ACTIVE")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customerGroups CustomerGroup[]
+  loanApplications LoanApplication[]
+  loanAccounts   LoanAccount[]
+  savingsAccounts SavingsAccount[]
+  termDepositAccounts TermDepositAccount[]
+
+  @@unique([organizationId, customerCode])
+  @@unique([organizationId, phone])
+  @@index([organizationId, branchId, status])
+  @@map("customers")
+}
+
+model Group {
+  id             String         @id @default(uuid())
+  organizationId  String
+  branchId       String?
+  code           String
+  name           String
+  meetingDay     String?
+  status         String         @default("ACTIVE")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customerGroups CustomerGroup[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, name])
+  @@index([organizationId, branchId, status])
+  @@map("groups")
+}
+
+model CustomerGroup {
+  id             String     @id @default(uuid())
+  organizationId  String
+  customerId     String
+  groupId        String
+  role           String     @default("MEMBER")
+  status         String     @default("ACTIVE")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer       Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  group          Group       @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, customerId, groupId])
+  @@index([organizationId, groupId, role])
+  @@map("customer_groups")
+}
+
 model Session {
   id        String   @id @default(uuid())
   userId    String
@@ -218,5 +310,426 @@ model PasswordResetToken {
 
   @@index([userId, isUsed])
   @@map("password_reset_tokens")
+}
+
+model LoanScheme {
+  id             String            @id @default(uuid())
+  organizationId  String
+  code           String
+  name           String
+  status         String            @default("DRAFT")
+  currentVersionId String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  versions       LoanSchemeVersion[]
+  applications   LoanApplication[]
+  loanAccounts   LoanAccount[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, status])
+  @@map("loan_schemes")
+}
+
+model LoanSchemeVersion {
+  id                String    @id @default(uuid())
+  loanSchemeId      String
+  versionNumber     Int
+  minPrincipal      String    @db.VarChar(32)
+  maxPrincipal      String    @db.VarChar(32)
+  termMonths        Int
+  interestRate      String    @db.VarChar(32)
+  interestMethod    String
+  repaymentFrequency String
+  gracePeriodDays   Int       @default(0)
+  status            String    @default("DRAFT")
+  isPublished       Boolean   @default(false)
+  effectiveDate     DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  loanScheme        LoanScheme @relation(fields: [loanSchemeId], references: [id], onDelete: Restrict)
+
+  @@unique([loanSchemeId, versionNumber])
+  @@index([loanSchemeId, status])
+  @@map("loan_scheme_versions")
+}
+
+model LoanApplication {
+  id                    String    @id @default(uuid())
+  organizationId        String
+  customerId           String
+  schemeId             String
+  requestedPrincipal   String    @db.VarChar(32)
+  requestedTermMonths  Int
+  purpose              String
+  status               String    @default("DRAFT")
+  businessPurpose      String?
+  approvalReason       String?
+  rejectionReason      String?
+  submittedAt          DateTime?
+  approvedAt           DateTime?
+  rejectedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  createdById          String?
+  submittedById        String?
+  approvedById         String?
+  rejectedById        String?
+
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer            Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  scheme              LoanScheme  @relation(fields: [schemeId], references: [id], onDelete: Restrict)
+  disbursements       LoanDisbursement[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, customerId])
+  @@map("loan_applications")
+}
+
+model LoanAccount {
+  id                    String    @id @default(uuid())
+  organizationId        String
+  customerId           String
+  schemeId             String
+  loanAccountNumber    String
+  principalDisbursed   String    @db.VarChar(32)
+  principalOutstanding String    @db.VarChar(32)
+  status               String    @default("ACTIVE")
+  nextDueDate          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer            Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  scheme              LoanScheme  @relation(fields: [schemeId], references: [id], onDelete: Restrict)
+  disbursements       LoanDisbursement[]
+  loanClosures        LoanClosure[]
+  collectionReceipts  CollectionReceipt[]
+  collectionReceiptAllocations CollectionReceiptAllocation[]
+
+  @@unique([organizationId, loanAccountNumber])
+  @@index([organizationId, customerId, status])
+  @@map("loan_accounts")
+}
+
+model LoanDisbursement {
+  id                  String    @id @default(uuid())
+  organizationId      String
+  applicationId       String
+  loanAccountId       String
+  amount              String    @db.VarChar(32)
+  disbursementDate    DateTime
+  sourceReference     String
+  status              String    @default("POSTED")
+  createdById         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  application         LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  loanAccount         LoanAccount @relation(fields: [loanAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, applicationId])
+  @@index([organizationId, loanAccountId])
+  @@map("loan_disbursements")
+}
+
+model LoanClosure {
+  id                     String    @id @default(uuid())
+  organizationId         String
+  loanAccountId         String
+  asOfDate              String
+  principalOutstanding  String    @db.VarChar(32)
+  accruedInterest       String    @db.VarChar(32)
+  feeAmount             String    @db.VarChar(32)
+  penaltyAmount         String    @db.VarChar(32)
+  waiverAmount          String    @db.VarChar(32)
+  totalSettlement       String    @db.VarChar(32)
+  status                String    @default("POSTED")
+  reason                String
+  createdById           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  loanAccount           LoanAccount @relation(fields: [loanAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, loanAccountId])
+  @@index([organizationId, loanAccountId, asOfDate])
+  @@map("loan_closures")
+}
+
+model SavingsAccount {
+  id             String    @id @default(uuid())
+  organizationId  String
+  customerId     String
+  accountNumber  String
+  productName    String
+  balance        String    @db.VarChar(32)
+  status         String    @default("ACTIVE")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  transactions   SavingsTransaction[]
+
+  @@unique([organizationId, accountNumber])
+  @@index([organizationId, customerId, status])
+  @@map("savings_accounts")
+}
+
+model SavingsTransaction {
+  id             String    @id @default(uuid())
+  organizationId  String
+  accountId      String
+  type           String
+  amount         String    @db.VarChar(32)
+  balanceAfter   String    @db.VarChar(32)
+  transactionRef String
+  note           String?
+  status         String    @default("POSTED")
+  createdAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  account        SavingsAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, transactionRef])
+  @@index([organizationId, accountId, createdAt])
+  @@map("savings_transactions")
+}
+
+model DepositProduct {
+  id             String    @id @default(uuid())
+  organizationId  String
+  code           String
+  name           String
+  productType    String
+  interestRate   String    @db.VarChar(32)
+  termMonths     Int
+  minPrincipal   String    @db.VarChar(32)
+  maxPrincipal   String    @db.VarChar(32)
+  status         String    @default("ACTIVE")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  accounts       TermDepositAccount[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, productType, status])
+  @@map("deposit_products")
+}
+
+model TermDepositAccount {
+  id             String    @id @default(uuid())
+  organizationId  String
+  customerId     String
+  productId      String
+  accountNumber  String
+  principal      String    @db.VarChar(32)
+  maturityDate   String
+  status         String    @default("ACTIVE")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  product        DepositProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, accountNumber])
+  @@index([organizationId, customerId, status])
+  @@map("term_deposit_accounts")
+}
+
+model CollectionReceipt {
+  id             String    @id @default(uuid())
+  organizationId  String
+  loanAccountId  String
+  cashAccountId  String
+  receiptNumber  String
+  businessDate   String
+  amount         String    @db.VarChar(32)
+  paymentMethod  String
+  reference      String?
+  status         String    @default("POSTED")
+  recordedById   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  loanAccount    LoanAccount @relation(fields: [loanAccountId], references: [id], onDelete: Restrict)
+  cashAccount    CashAccount @relation(fields: [cashAccountId], references: [id], onDelete: Restrict)
+  allocations    CollectionReceiptAllocation[]
+
+  @@unique([organizationId, receiptNumber])
+  @@index([organizationId, loanAccountId, businessDate])
+  @@map("collection_receipts")
+}
+
+model CollectionReceiptAllocation {
+  id             String    @id @default(uuid())
+  organizationId  String
+  receiptId      String
+  loanAccountId  String
+  amount         String    @db.VarChar(32)
+  allocationType String
+  principalAmount String    @db.VarChar(32)
+  interestAmount  String    @db.VarChar(32)
+  feeAmount      String    @db.VarChar(32)
+  penaltyAmount  String    @db.VarChar(32)
+  status         String    @default("POSTED")
+  createdAt      DateTime  @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  receipt        CollectionReceipt @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  loanAccount    LoanAccount @relation(fields: [loanAccountId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, loanAccountId, receiptId])
+  @@map("collection_receipt_allocations")
+}
+
+model ChartOfAccount {
+  id             String        @id @default(uuid())
+  organizationId String
+  code           String        // e.g. "1001", "2001", "4001"
+  name           String
+  accountType    String        // ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
+  currency       String        @default("INR")
+  description    String?
+  isSystem       Boolean       @default(false)
+  isActive       Boolean       @default(true)
+  balance        Decimal       @default(0) @db.Decimal(19, 4)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  journalLines   JournalLine[]
+  cashAccounts   CashAccount[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, accountType])
+  @@map("chart_of_accounts")
+}
+
+model FiscalPeriod {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String       // e.g. "FY2026-Q1", "OCT-2026"
+  startDate      DateTime
+  endDate        DateTime
+  isClosed       Boolean      @default(false)
+  closedAt       DateTime?
+  closedById     String?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  closedBy       User?        @relation("ClosedFiscalPeriods", fields: [closedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isClosed])
+  @@map("fiscal_periods")
+}
+
+model Expense {
+  id             String    @id @default(uuid())
+  organizationId  String
+  branchId       String?
+  category       String
+  amount         String    @db.VarChar(32)
+  expenseDate    String
+  payee          String
+  paymentMethod  String
+  description    String?
+  supportingRef  String?
+  status         String    @default("DRAFT")
+  submittedById  String?
+  approvedById   String?
+  postedById     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, expenseDate])
+  @@map("expenses")
+}
+
+model JournalEntry {
+  id             String        @id @default(uuid())
+  organizationId String
+  branchId       String?
+  entryNumber    String
+  businessDate   String        // YYYY-MM-DD
+  postingDate    DateTime
+  sourceModule   String        // LOANS, COLLECTIONS, SAVINGS, EXPENSES, MANUAL
+  sourceType     String        // DISBURSEMENT, COLLECTION_RECEIPT, SAVINGS_DEPOSIT, EXPENSE_PAYMENT, ADJUSTMENT
+  sourceId       String?       // ID of operational entity
+  description    String        @db.Text
+  postedById     String?
+  status         String        @default("POSTED") // POSTED, REVERSED
+  reversalOfId   String?       @unique
+  reversalReason String?
+  totalDebit     Decimal       @db.Decimal(19, 4)
+  totalCredit    Decimal       @db.Decimal(19, 4)
+  createdAt      DateTime      @default(now())
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch         Branch?       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  postedBy       User?         @relation(fields: [postedById], references: [id], onDelete: SetNull)
+  lines          JournalLine[]
+  reversalOf     JournalEntry? @relation("JournalReversals", fields: [reversalOfId], references: [id])
+  reversedBy     JournalEntry? @relation("JournalReversals")
+
+  @@unique([organizationId, entryNumber])
+  @@index([organizationId, businessDate])
+  @@index([organizationId, sourceModule, sourceId])
+  @@index([organizationId, status])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String         @id @default(uuid())
+  journalEntryId String
+  accountId      String
+  lineNumber     Int
+  debit          Decimal        @default(0) @db.Decimal(19, 4)
+  credit         Decimal        @default(0) @db.Decimal(19, 4)
+  narration      String?
+  createdAt      DateTime       @default(now())
+
+  journalEntry   JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  account        ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([journalEntryId, lineNumber])
+  @@index([accountId])
+  @@map("journal_lines")
+}
+
+model CashAccount {
+  id               String         @id @default(uuid())
+  organizationId   String
+  branchId         String?
+  chartOfAccountId String
+  code             String         // e.g. "CASH-VAULT-01", "BANK-HDFC-01"
+  name             String
+  accountType      String         // CASH, BANK
+  balance          Decimal        @default(0) @db.Decimal(19, 4)
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch           Branch?        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  chartOfAccount   ChartOfAccount @relation(fields: [chartOfAccountId], references: [id], onDelete: Restrict)
+  collectionReceipts CollectionReceipt[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, branchId])
+  @@map("cash_accounts")
 }
 
