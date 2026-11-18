@@ -24,9 +24,21 @@ describe("Loan application workflow", () => {
     });
     adminUser = loginRes.user;
 
+    const group = (await prisma.group.findFirst({
+      where: { organizationId: adminUser.organizationId },
+    })) ?? (await prisma.group.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        code: `GRP-APP-${suffix}`,
+        name: `Application Test Group ${suffix}`,
+        status: "ACTIVE",
+      },
+    }));
+
     const customer = await prisma.customer.create({
       data: {
         organizationId: adminUser.organizationId,
+        groupId: group.id,
         customerCode: `APP-CUST-${suffix}`,
         fullName: "Loan Applicant One",
         phone: `+91-900000${suffix}`,

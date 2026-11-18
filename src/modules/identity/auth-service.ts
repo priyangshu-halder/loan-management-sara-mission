@@ -28,6 +28,16 @@ export type UserWithAuthRelations = Prisma.UserGetPayload<{
     userScopes: {
       include: { branch: true };
     };
+    userPermissions: {
+      include: { permission: true };
+    };
+    permissionProfile: {
+      include: {
+        profilePermissions: {
+          include: { permission: true };
+        };
+      };
+    };
   };
 }>;
 
@@ -51,6 +61,7 @@ export function buildAuthenticatedUserContext(userRecord: UserWithAuthRelations)
   const roles: string[] = [];
   const permissions = new Set<string>();
 
+  // 1. Permissions from assigned roles
   for (const ur of userRecord.userRoles || []) {
     if (ur.role) {
       roles.push(ur.role.code);
@@ -58,6 +69,26 @@ export function buildAuthenticatedUserContext(userRecord: UserWithAuthRelations)
         if (rp.permission?.code) {
           permissions.add(rp.permission.code);
         }
+      }
+    }
+  }
+
+  // 2. Permissions from assigned permission profile
+  if (userRecord.permissionProfile?.profilePermissions) {
+    for (const pp of userRecord.permissionProfile.profilePermissions) {
+      if (pp.permission?.code) {
+        permissions.add(pp.permission.code);
+      }
+    }
+  }
+
+  // 3. User direct permissions / individual overrides
+  for (const up of userRecord.userPermissions || []) {
+    if (up.permission?.code) {
+      if (up.granted) {
+        permissions.add(up.permission.code);
+      } else {
+        permissions.delete(up.permission.code);
       }
     }
   }
@@ -125,6 +156,16 @@ export async function login(params: LoginParams): Promise<LoginResult> {
       },
       userScopes: {
         include: { branch: true },
+      },
+      userPermissions: {
+        include: { permission: true },
+      },
+      permissionProfile: {
+        include: {
+          profilePermissions: {
+            include: { permission: true },
+          },
+        },
       },
     },
   });
@@ -211,6 +252,16 @@ export async function validateSession(rawToken: string): Promise<AuthenticatedUs
           },
           userScopes: {
             include: { branch: true },
+          },
+          userPermissions: {
+            include: { permission: true },
+          },
+          permissionProfile: {
+            include: {
+              profilePermissions: {
+                include: { permission: true },
+              },
+            },
           },
         },
       },

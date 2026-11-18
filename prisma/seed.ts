@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { seedAccountingData } from "./seed-accounting";
+import { seedPermissionsAndProfiles } from "../src/lib/permissions/permission-seeder";
 
 const prisma = new PrismaClient();
 
@@ -185,6 +186,9 @@ async function main() {
   }
 
   console.log(`Seeded default admin user: ${adminUser.username} (${adminUser.email})`);
+
+  // Seed granular permissions and reusable permission profiles
+  await seedPermissionsAndProfiles(org.id);
 
   // Seed Accounting Foundation
   await seedAccountingData();

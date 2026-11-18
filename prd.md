@@ -109,62 +109,98 @@ by organization, branch, group, or assigned accounts.
 
 ### 5.2 Loan Management
 
-#### Loan Scheme
+#### Loan Scheme (Manually Configured Scheme Model)
 
--   Configure scheme name/code, eligibility, minimum/maximum principal,
-    term, repayment frequency, interest method/rate, fees, penalties,
-    grace period, and permitted branches.
--   Support clearly defined calculation methods only; e.g. flat or
-    reducing balance, with effective-date/version controls.
--   Preview repayment schedule before publishing a scheme.
--   Published schemes cannot be silently edited in a way that changes
-    existing accounts. New versions apply to new loans unless an
-    explicit migration process is approved.
+-   Configure scheme code, scheme name, loan amount (principal), repayment period
+    (months), total repayment amount, and terms & conditions.
+-   **Maker Manual Control:** The maker explicitly defines the principal, repayment
+    period, and total repayment amount. The system does not calculate total repayment
+    using an interest rate, interest formula, predefined percentage, or financial rule.
+-   **Validation Rules:**
+    -   Total Repayment Amount must be greater than or equal to Loan Amount.
+    -   Repayment period must be a positive integer in months.
+    -   Amounts must be positive and follow exact financial decimal precision.
+    -   Old formula-based parameters (interest rate, interest calculation method,
+        min/max principal ranges, grace period, initial status) are retired from the
+        scheme creation interface.
+-   **Installment Schedule Preview:**
+    -   Indicative Monthly Installment is calculated as:
+        `Monthly Installment = Total Repayment Amount / Repayment Period`.
+    -   Clearly labeled as an indicative schedule breakdown, not an interest calculation.
+    -   For amounts not divisible evenly, rounding remainders are distributed across
+        installments using integer minor units (paisa/cent) ensuring the exact sum of
+        installments equals the total contractual repayment amount.
+-   **Immutability and Versioning:**
+    -   Published schemes cannot be silently edited. Updates create a new scheme version.
+    -   Loans snapshot the scheme's principal, repayment period, and total repayment
+        obligation upon creation and disbursement.
+    -   Subsequent changes to a scheme do not alter active or historical loan accounts.
+    -   Historical loans created under the legacy formula system remain completely
+        intact, readable, and auditable.
 
 #### Loan Application
 
--   Customer and group association, requested amount, scheme, term,
-    purpose, income/eligibility data, required documents,
-    guarantor/collateral fields if needed.
--   Draft → submitted → under review → approved/rejected/withdrawn
-    states.
--   Capture reviewer decisions, conditions, rejection reasons, and
-    timestamps.
--   Prevent disbursement before approval and required checks are
-    complete.
+-   Customer and group association, scheme selection (auto-populating principal,
+    repayment period, and total repayment amount), purpose, and documentation.
+-   The loan application snapshots `totalRepaymentAmount` alongside requested principal.
+-   Draft → submitted → under review → approved/rejected/withdrawn states.
+-   Capture reviewer decisions, conditions, rejection reasons, and timestamps.
+-   Prevent disbursement before approval and required checks are complete.
 
 #### Loan Disbursement
 
--   Disburse approved applications through a permitted payment method
-    and source cash/bank account.
--   Validate approved amount, fees, borrower status, duplicate
-    disbursement, and available funding/cash constraints.
--   Require authorization; support maker-checker approval based on
-    configuration.
--   Posting creates accounting entries and a disbursement
+-   Disburse approved applications through a permitted payment method and source
+    cash/bank account.
+-   Validate approved amount, borrower status, duplicate disbursement, and funding constraints.
+-   Require authorization; support maker-checker approval based on configuration.
+-   Generates repayment schedule derived directly from `totalRepaymentAmount` and term
+    in months without separate interest calculations.
+-   Posting creates balanced double-entry accounting entries (debiting Loan Portfolio
+    Asset and crediting Cash/Bank Liquidity for the disbursed principal) and a disbursement
     receipt/voucher.
+-   Initializes loan account tracking: `principalDisbursed = Loan Amount`,
+    `totalRepaymentAmount = Contractual Total`, `totalPaid = 0.00`, and
+    `principalOutstanding = Total Repayment Amount`.
 -   Corrections use reversal transactions, not destructive edits.
 
 #### Loan Account
 
--   Unique loan account number, borrower, scheme version, principal,
-    rate/method, schedule, fees, balance, arrears, next due date,
-    status, and transaction history.
--   Show principal, interest, fee, penalty, paid, overdue, and
-    outstanding components separately.
--   Schedule generation and recalculation must be deterministic and
-    covered by tests.
--   Any rescheduling, waiver, write-off, or restructuring must be
-    permission-gated, reasoned, and audited.
+-   Unique loan account number, borrower, scheme version snapshot, principal disbursed,
+    term in months, total contractual repayment obligation, total paid, and remaining
+    outstanding balance.
+-   Collections directly reduce the remaining contractual outstanding balance:
+    `Outstanding = Total Repayment Amount - Total Collected`.
+-   Schedule generation is deterministic and guaranteed to sum to `totalRepaymentAmount`.
+-   Any rescheduling, waiver, write-off, or restructuring must be permission-gated,
+    reasoned, and audited.
 
-#### Group
+#### Customer & Group Membership
 
+-   **Mandatory Group Policy:** Every customer must belong to an active
+    primary Center / Group (`groupId` is required and enforced server-side).
+    Individual borrowers without a group are not allowed.
 -   Create groups, assign members and field agents, manage
     meeting/collection day, group status, and group-level reporting.
--   A borrower may belong to multiple groups only if organization policy
-    allows it.
+-   A borrower may belong to multiple groups through secondary affiliations
+    (`CustomerGroup`), but primary group assignment is mandatory on registration
+    and maintained throughout editing.
 -   Group membership changes must not rewrite historical collection
     attribution.
+-   **Customer Onboarding Documents:**
+    -   Optional Application Form upload during customer registration
+        and editing.
+    -   Supported formats: Images (JPG, PNG, WEBP), PDF, DOC, and DOCX (up to 10MB).
+    -   Physical files are stored outside the public web root using a secure
+        storage provider abstraction; metadata and references are stored in
+        `customer_documents`.
+    -   Access and download require authentication and `customer.kyc.view`
+        or `customer.detail.view` permission via an authorized streaming route.
+    -   Private document URLs are never publicly exposed.
+-   **Removal of Borrower Bank Account Fields:**
+    -   Customer KYC/profile no longer collects borrower bank account numbers
+        or IFSC codes.
+    -   Organizational cash/bank accounts used for funding and disbursement
+        remain fully operational under ledger `CashAccount`.
 
 #### Loan Closing
 
@@ -298,25 +334,102 @@ by organization, branch, group, or assigned accounts.
 -   Every journal entry must balance (total debits = total credits) and
     reference its source transaction.
 
-#### Daily Sheet
+#### Daily Sheet (Redesigned Daily Cash Reconciliation Statement)
 
--   Daily summary of opening cash/bank balances, receipts, payments,
-    transfers, and closing balances, with reconciliation status.
--   Define whether the sheet is per cashier, branch, or organization;
-    support configured views.
+-   **Route:** `/accounting?tab=daily-sheet`
+-   **Sections Structure:**
+    -   **Received Section:**
+        1. Opening (previous day's finalized closing cash carried forward)
+        2. Advance (unapplied borrower advance collections)
+        3. Repayment (regular loan principal, interest, fee, and penalty repayments)
+        4. RD (recurring deposit opening and installment receipts)
+        5. FD (fixed deposit opening receipts)
+        6. Bank Transfer (money transferred into cash account from bank/other sources)
+        7. Loan (loan closure settlements and recoveries)
+        8. Miscellaneous (savings deposits, capital injections, and other valid receipts)
+        9. Total Received (sum of categories 2 through 8; excludes Opening)
+    -   **Payment Section:**
+        1. Savings Withdrawal (member savings withdrawals)
+        2. Bank Transfer (cash deposited into bank / transferred to other accounts)
+        3. Loan Payment (disbursed loan principals)
+        4. Expenses (posted operational expense payments)
+        5. Miscellaneous (deposit payouts and manual payment adjustments)
+        6. Total Payment (sum of payment categories)
+    -   **Daily Cash Summary & Cash In Hand:**
+        -   $\text{Closing Cash} = \text{Opening Cash} + \text{Total Cash Received} - \text{Total Cash Payment}$
+        -   Prominently displays **CASH IN HAND** with readable calculation formula.
+        -   Negative closing balances are highlighted as cash discrepancies; never silently converted to zero.
+-   **Carry-Forward & Finalization Engine:**
+    -   Previous day's finalized closing cash automatically carries forward as next day's opening cash.
+    -   Authorized users can establish initial baseline opening balance for the first operating day.
+    -   Finalizing locks the daily snapshot (`DailyCashRecord`), preserving historical audit records.
+    -   Backdated transactions after finalization trigger an auditable discrepancy notice and re-reconciliation flow.
+-   **Internal Bank Transfer Treatment:**
+    -   Cash-to-bank reduces physical cash in hand; bank-to-cash increases physical cash in hand.
+    -   Internal transfers between organizational asset accounts do not create artificial income or expenses.
+    -   Consolidated cash reconciles 100% across Daybook, Cashbook, and Daily Sheet.
 
 #### Cashbook
 
--   Chronological cash/bank receipts and payments by account, with
-    opening/closing balances and voucher/receipt references.
--   Cash balances must reconcile to posted ledger transactions.
+-   **Date-Wise Financial Table Interface:**
+    -   Clean, table-only presentation with one row per calendar/business date in ascending chronological order (oldest first).
+    -   No summary cards, charts, graphs, or individual transaction cards.
+    -   Date range selection with default starting date set to earliest available cashbook date and default ending date set to today.
+    -   Displays every date in the range, including dates with no transactions (`0.00` or `—` for categories; continuous opening and closing carry-forward).
+-   **17-Column Structure in Exact Order:**
+    1. `Date`
+    2. `Opening`
+    3. `Advance`
+    4. `Repayment`
+    5. `RD`
+    6. `FD`
+    7. `Bank Transfer (Received)`
+    8. `Loan`
+    9. `Miscellaneous (Received)`
+    10. `Total Received` (Sum of 7 receipt categories, excluding Opening)
+    11. `Savings Withdrawal`
+    12. `Bank Transfer (Payment)`
+    13. `Loan Payment`
+    14. `Expenses`
+    15. `Miscellaneous (Payment)`
+    16. `Total Payment` (Sum of 5 payment categories)
+    17. `Cash in Hand` (`Opening + Total Received - Total Payment`)
+-   **Continuous Mathematical Carry-Forward:**
+    -   Next day's Opening equals previous day's Cash in Hand across all dates.
+    -   Opening is strictly excluded from Total Received.
+-   **Internal Bank Transfer Treatment:**
+    -   Cash to bank reduces physical cash (`Bank Transfer Payment`); bank to cash increases physical cash (`Bank Transfer Received`).
+    -   Bank-to-bank transfers do not affect physical cash in hand.
+    -   Internal transfers do not create artificial income or expense.
+-   **Summary Row & Negative Alert:**
+    -   Sticky bottom summary row aggregates each category column, total received, total payment, initial period opening, and final cash in hand (does not sum daily openings/closings).
+    -   Negative Cash in Hand rows and alerts are highlighted without masking or zeroing deficits.
+    -   Reconciles 100% with Daily Sheet and Daybook.
 
 #### Daybook
 
--   Chronological view of all posted accounting vouchers/journals for a
-    selected period.
--   Include source module, voucher number, narration, debit/credit
-    totals, posting user, and status.
+-   **Complete Daily Transaction Register:**
+    -   Acts as the complete chronological record of all financial transactions across all modules (loans, collections, savings, RD, FD, bank transfers, expenses, adjustments, journals, reversals).
+    -   Includes all posted accounting transactions without restricting to physical cash (includes bank and non-cash journal postings).
+-   **Date-Wise Organisation:**
+    -   Records are grouped date-wise with clear daily headings and transaction counts.
+    -   Excludes empty dates where no transactions occurred (unlike Cashbook).
+    -   Organised in chronological order (ascending business date and voucher sequence).
+-   **10-Column Transaction Table & Detailed Journal Entries:**
+    -   Columns: `Voucher No.`, `Transaction Date`, `Source Module`, `Transaction Type`, `Reference`, `Description`, `Debit (₹)`, `Credit (₹)`, `Status`, `Action`.
+    -   Complete accounting journal breakdown available inline and via dedicated detail modal (displays every individual debit and credit ledger line with GL code, name, narration, and amount).
+    -   Strict invariant: Total Debits equal Total Credits for every voucher.
+-   **Daily Totals & Reconciliation:**
+    -   End of each day shows: number of vouchers, daily total debit, and daily total credit.
+    -   Daily debit and credit totals must strictly reconcile ($Dr \equiv Cr$).
+    -   Bottom of selected range displays cumulative period totals and verified reconciliation badge.
+-   **Search & Multi-Dimensional Filtering:**
+    -   Filter by date range (`startDate`, `endDate`), voucher number, source module, transaction type, customer/member/narration search, GL account, and status (POSTED, REVERSED, ALL).
+-   **Clear Separation of Responsibilities:**
+    -   **Daybook:** Every individual accounting transaction, date-wise, with complete debit/credit details.
+    -   **Cashbook:** Date-wise table with receipt/payment categories, totals, opening and closing cash.
+    -   **Daily Sheet:** Daily cash reconciliation summary showing received amounts, payments, and cash in hand.
+    -   All three reconcile 100% against the same double-entry ledger without duplicate postings.
 
 ## 6. Cross-cutting requirements
 

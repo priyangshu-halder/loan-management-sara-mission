@@ -14,13 +14,13 @@ fi
 
 if ! mysql --socket="$SOCKET" -u root -e "SELECT 1;" >/dev/null 2>&1; then
   echo "Starting mysqld on $SOCKET..."
-  /usr/sbin/mysqld \
+  nohup /usr/sbin/mysqld \
     --skip-networking \
     --mysqlx=OFF \
     --datadir="$DATADIR" \
     --socket="$SOCKET" \
     --pid-file="$PIDFILE" \
-    --log-error="$LOGFILE" &
+    --log-error="$LOGFILE" >/dev/null 2>&1 &
   
   # Wait for socket to become available
   for i in {1..30}; do
@@ -37,4 +37,12 @@ fi
 # Ensure dev database exists
 mysql --socket="$SOCKET" -u root -e "CREATE DATABASE IF NOT EXISTS finance_dev;"
 echo "Database finance_dev is ready."
+
+# If fresh database, deploy migrations and seed
+TABLE_COUNT=$(mysql --socket="$SOCKET" -u root -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='finance_dev';" -s -N 2>/dev/null || echo 0)
+if [ "$TABLE_COUNT" -eq "0" ]; then
+  echo "Database empty, applying migrations and seeding..."
+  ./node_modules/.bin/prisma migrate deploy
+  ./node_modules/.bin/tsx prisma/seed.ts
+fi
 

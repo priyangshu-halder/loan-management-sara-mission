@@ -25,3 +25,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed to generate loan preview" } }, { status: 500 });
   }
 }
+

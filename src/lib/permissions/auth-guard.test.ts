@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   requirePermission,
+  requireAnyPermission,
+  hasPermission,
   requireOrganizationScope,
   requireBranchScope,
   requireRecordScope,
@@ -41,6 +43,50 @@ describe("Authorization and Scope Guard", () => {
         permissions: new Set(),
       };
       expect(() => requirePermission(superAdmin, "loan.application.approve")).not.toThrow();
+    });
+  });
+
+  describe("requireAnyPermission", () => {
+    it("allows execution when user has at least one of the specified permissions", () => {
+      expect(() =>
+        requireAnyPermission(baseUser, "loan.application.approve", "loan.application.create")
+      ).not.toThrow();
+    });
+
+    it("throws ForbiddenError when user lacks all of the specified permissions", () => {
+      expect(() =>
+        requireAnyPermission(baseUser, "loan.application.approve", "customer.approve")
+      ).toThrow(ForbiddenError);
+    });
+
+    it("allows Super Admin to bypass permission checks", () => {
+      const superAdmin: AuthenticatedUser = {
+        ...baseUser,
+        isSuperAdmin: true,
+        permissions: new Set(),
+      };
+      expect(() =>
+        requireAnyPermission(superAdmin, "loan.application.approve", "customer.approve")
+      ).not.toThrow();
+    });
+  });
+
+  describe("hasPermission", () => {
+    it("returns true when user has permission", () => {
+      expect(hasPermission(baseUser, "loan.application.create")).toBe(true);
+    });
+
+    it("returns false when user lacks permission", () => {
+      expect(hasPermission(baseUser, "loan.application.approve")).toBe(false);
+    });
+
+    it("returns true for Super Admin regardless of assigned permissions", () => {
+      const superAdmin: AuthenticatedUser = {
+        ...baseUser,
+        isSuperAdmin: true,
+        permissions: new Set(),
+      };
+      expect(hasPermission(superAdmin, "loan.application.approve")).toBe(true);
     });
   });
 

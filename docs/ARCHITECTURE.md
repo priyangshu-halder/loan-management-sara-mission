@@ -165,6 +165,85 @@ keys and restrictive delete behavior for financial records. Add
 created/updated actor metadata and timestamps. Use status enums or
 controlled lookup values with explicit state transitions.
 
+### 7.1 Customer, Group & Document Storage Architecture
+
+-   **Mandatory Customer Group Relation:**
+    -   `Customer.groupId` is a mandatory foreign key referencing `Group(id)` with `onDelete: Restrict`.
+    -   Every customer must be assigned to an active center/group within the caller's permitted branch scope.
+    -   Secondary group memberships are maintained through `CustomerGroup`.
+-   **Borrower Bank Details Removal:**
+    -   Customer KYC records no longer store borrower bank account numbers, IFSC codes, or passbook copies.
+    -   Organizational liquidity accounts remain managed under ledger `CashAccount`.
+-   **Secure Document Storage Abstraction (`src/lib/storage/storage-provider.ts`):**
+    -   `StorageProvider` defines an abstraction for storing, reading, and deleting files, with `LocalStorageProvider` for filesystem deployment and extensibility for S3/Azure Blob.
+    -   Files are saved strictly outside the public web root in a secure root directory (`uploads/documents/` by default, configurable via `DOCUMENT_STORAGE_DIR`).
+    -   Safe storage path generation: sanitizes filenames, prevents path traversal (`..` guard), and prepends random UUIDs.
+    -   `CustomerDocument` table records metadata (`organizationId`, `customerId`, `documentType`, `fileName`, `storagePath`, `mimeType`, `fileSize`).
+    -   Serving: Streamed directly through authenticated API routes (`/api/customers/[id]/documents/[type]`) with `nosniff`, `Cache-Control: private`, and strict permission checks (`customer.kyc.view` / `customer.detail.view`). No direct public URL access.
+    -   Orphan prevention: If database customer creation fails, newly written storage files are automatically cleaned up. Replacing or removing documents safely deletes previous files from disk.
+
+### 7.2 Manually Configured Loan Scheme & Schedule Architecture
+
+-   **Manual Scheme Model (`LoanSchemeVersion`):**
+    -   Fields: `principalAmount` (Decimal(15,4)), `repaymentPeriod` (Int, months), `totalRepaymentAmount` (Decimal(15,4)), `termsAndConditions` (Text).
+    -   Retired fields (`minPrincipal`, `maxPrincipal`, `interestRate`, `interestMethod`, `gracePeriodDays`) are made nullable to maintain complete non-destructive backward compatibility with existing historical loans.
+    -   Maker explicitly specifies contractual principal and total repayment. No formula-based interest calculations are performed.
+-   **Loan Snapshotting & Immutability:**
+    -   `LoanApplication` snapshots `totalRepaymentAmount`.
+    -   `LoanAccount` snapshots `principalDisbursed`, `totalRepaymentAmount`, and `termMonths`.
+    -   Disbursement is atomic: initializes `totalPaid = 0.00` and `principalOutstanding = totalRepaymentAmount`.
+    -   Subsequent changes or versions of a scheme have zero effect on active or closed loans.
+-   **Schedule Generation Engine (`src/modules/loans/loan-schedule-engine.ts`):**
+    -   Deterministic installment generation based on `totalRepaymentAmount` and `repaymentPeriod`.
+    -   Rounding remainder distribution via integer minor units (paisa/cents):
+        `baseMinor = Math.floor(totalMinor / N)`, `remainderMinor = totalMinor - baseMinor * N`.
+        The remainder minor units are distributed across the final installments, guaranteeing `sum(installments) === totalRepaymentAmount`.
+    -   Dual calculation engine: automatically falls back to legacy formula calculations if `totalRepaymentAmount` is null (preserving historical loans).
+-   **Repayment & Collections Flow:**
+    -   Collections directly decrement `principalOutstanding` in `loan_accounts` and increment `totalPaid`.
+    -   `principalOutstanding = totalRepaymentAmount - totalCollected`.
+    -   Receipt reversal reverses the balance decrement transactionally.
+    -   Double-entry journal postings record principal disbursements and collection receipts without altering contractual obligations.
+
+### 7.3 Daily Sheet, Cashbook & Cash Reconciliation Architecture
+
+-   **Daily Sheet Data Model (`DailyCashRecord`):**
+    -   Fields: `organizationId`, `branchId`, `cashAccountId`, `businessDate`, `openingBalance`, `totalReceived`, `totalPayment`, `closingBalance`, `isFinalized`, `isInitial`, `finalizedAt`, `finalizedById`, `notes`.
+    -   Composite unique key: `@@unique([organizationId, cashAccountId, businessDate])` strictly preventing multiple conflicting opening/closing balances for the same cash account and date.
+-   **Cash Reconciliation & Carry-Forward Logic:**
+    -   $\text{Closing Cash} = \text{Opening Cash} + \text{Total Cash Received} - \text{Total Cash Payment}$.
+    -   The previous day's finalized closing cash automatically carries forward as the next day's opening cash.
+    -   Authorised users can establish initial baseline opening balance for day 1.
+    -   Unfinalized previous days are detected and surfaced with live running balance indicators.
+    -   Post-finalization backdated transactions trigger an auditable discrepancy notice with variance tracking and re-finalization.
+-   **Deterministic Classification Engine (`src/modules/accounting/ledger-service.ts`):**
+    -   Every posted journal line for the selected account's general ledger ID is mapped line by line against balancing entries.
+    -   Received: Opening, Advance (credit 2004), Repayment (credit 1201/4001/4002/4003), RD (credit 2002), FD (credit 2003), Bank Transfer (debit cash, credit bank), Loan (settlement/closure), Miscellaneous.
+    -   Payment: Savings Withdrawal (debit 2001), Bank Transfer (credit cash, debit bank), Loan Payment (debit 1201), Expenses (debit 5000-series), Miscellaneous.
+    -   Exact reconciliation guarantee: $\sum \text{Received} \equiv \sum \text{Debits}$ and $\sum \text{Payment} \equiv \sum \text{Credits}$.
+-   **Internal Bank Transfers:**
+    -   `recordInternalTransfer` executes atomic balanced journal entries (`sourceModule: "MANUAL"`, `sourceType: "BANK_TRANSFER"`).
+    -   Cash-to-bank reduces cash-in-hand; bank-to-cash increases cash-in-hand; bank-to-bank does not affect physical cash.
+    -   Transfers between internal asset accounts create zero artificial income or expense.
+-   **Cashbook Date-Wise Financial Table Engine:**
+    -   Displays daily figures in chronological order (oldest first) across selected date range `[startDate, endDate]`.
+    -   Default start date is resolved dynamically via `getEarliestCashbookDate`, end date defaults to `getTodayBusinessDate()`.
+    -   Guarantees inclusion of all dates within the range (empty dates display `0.00`/`—` for categories with continuous carry-forward of Opening and Cash in Hand).
+    -   Strict 17-column order: `Date`, `Opening`, `Advance`, `Repayment`, `RD`, `FD`, `Bank Transfer (Received)`, `Loan`, `Miscellaneous (Received)`, `Total Received`, `Savings Withdrawal`, `Bank Transfer (Payment)`, `Loan Payment`, `Expenses`, `Miscellaneous (Payment)`, `Total Payment`, `Cash in Hand`.
+    -   Invariants: $\text{Total Received} = \sum 7 \text{ Received Categories}$ (excluding Opening); $\text{Total Payment} = \sum 5 \text{ Payment Categories}$; $\text{Cash in Hand} = \text{Opening} + \text{Total Received} - \text{Total Payment}$; $\text{Opening}_{t+1} \equiv \text{Cash in Hand}_t$.
+    -   Period Summary Row: Aggregates category sums, total received, total payment, initial period opening, and final cash in hand (never sums daily opening or closing balances).
+    -   Negative Cash in Hand: Highlighted with warning indicators without masking or zeroing deficits.
+-   **Daybook Complete Daily Transaction Register Architecture:**
+    -   Serves as the chronological, authoritative daily transaction register of all accounting postings across loans, collections, savings, term deposits, expenses, bank transfers, and manual adjustments.
+    -   Organised date-wise with distinct daily headings and voucher counts; omits inactive dates with zero transactions.
+    -   Detailed 10-column table per date: `Voucher No.`, `Transaction Date`, `Source Module`, `Transaction Type`, `Reference`, `Description`, `Debit (₹)`, `Credit (₹)`, `Status`, `Action`.
+    -   Exposes complete double-entry lines inline and in detail modals: ensures every voucher satisfies $\sum \text{Debits} \equiv \sum \text{Credits}$.
+    -   Daily totals reconciling debits and credits per date, alongside cumulative period totals.
+    -   Multi-dimensional filtering (date range, voucher number, source module, transaction type, search text, GL account, status) with reverse/forward chronological sorting.
+    -   Preserves full audit trails, reversal links (`reversalOf` / `reversedBy`), and immutability of historical vouchers.
+-   **Full Ledger Reconciliation:**
+    -   Daybook (complete daily transaction register with individual debit/credit lines), Cashbook (date-wise 17-column financial table), and Daily Sheet (category-wise statement) reconcile 100% against the same underlying posted journal records and classification engine without duplicate postings.
+
 ## 8. Suggested database constraints and indexes
 
 -   Unique `(organizationId, loanAccountNumber)`,

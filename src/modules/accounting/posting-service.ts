@@ -22,6 +22,7 @@ export interface JournalLineInput {
   debit: Decimal | string | number;
   credit: Decimal | string | number;
   narration?: string;
+  cashAccountId?: string;
 }
 
 export interface PostJournalCommand {
@@ -29,7 +30,7 @@ export interface PostJournalCommand {
   branchId?: string | null;
   businessDate: string; // YYYY-MM-DD
   postingDate?: Date | string; // Defaults to UTC midnight of businessDate
-  sourceModule: "LOANS" | "COLLECTIONS" | "SAVINGS" | "EXPENSES" | "MANUAL";
+  sourceModule: "LOANS" | "COLLECTIONS" | "SAVINGS" | "TERM_DEPOSITS" | "EXPENSES" | "MANUAL";
   sourceType: string;
   sourceId?: string | null;
   description: string;
@@ -140,6 +141,7 @@ export async function postJournalEntry(
 
   const validatedLines: Array<{
     accountId: string;
+    cashAccountId?: string;
     debit: Decimal;
     credit: Decimal;
     narration?: string;
@@ -166,6 +168,7 @@ export async function postJournalEntry(
 
     validatedLines.push({
       accountId: line.accountId,
+      cashAccountId: line.cashAccountId,
       debit: d,
       credit: c,
       narration: line.narration,
@@ -296,13 +299,20 @@ export async function postJournalEntry(
         },
       });
 
-      // If mapped to a CashAccount, update cash account balance projection
-      const cashAcc = await tx.cashAccount.findFirst({
-        where: {
-          organizationId: command.organizationId,
-          chartOfAccountId: account.id,
-        },
-      });
+      // If specified or mapped to a CashAccount, update cash account balance projection
+      let cashAcc = null;
+      if (line.cashAccountId) {
+        cashAcc = await tx.cashAccount.findUnique({
+          where: { id: line.cashAccountId },
+        });
+      } else {
+        cashAcc = await tx.cashAccount.findFirst({
+          where: {
+            organizationId: command.organizationId,
+            chartOfAccountId: account.id,
+          },
+        });
+      }
 
       if (cashAcc) {
         await tx.cashAccount.update({

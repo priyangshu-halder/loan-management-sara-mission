@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { validateSession } from "@/modules/identity/auth-service";
 import { AuthenticatedUser } from "./types";
+export type { AuthenticatedUser } from "./types";
 import { ForbiddenError, UnauthorizedError } from "@/lib/errors/app-error";
 
 /**
@@ -46,6 +47,59 @@ export function requirePermission(user: AuthenticatedUser, permissionCode: strin
   if (!user.permissions.has(permissionCode)) {
     throw new ForbiddenError(`Missing required permission: ${permissionCode}`);
   }
+}
+
+/**
+ * Checks if the user has a specific permission code.
+ * Platform Super Admin always returns true.
+ */
+export function hasPermission(user: AuthenticatedUser, permissionCode: string): boolean {
+  if (user.isSuperAdmin) {
+    return true;
+  }
+  return user.permissions.has(permissionCode);
+}
+
+/**
+ * Enforces that the user has at least one of the specified permission codes.
+ * Platform Super Admin bypasses domain permission checks.
+ * Throws ForbiddenError if none of the specified permissions match.
+ */
+export function requireAnyPermission(user: AuthenticatedUser, ...permissionCodes: string[]): void {
+  if (user.isSuperAdmin) {
+    return;
+  }
+
+  const hasAny = permissionCodes.some((code) => user.permissions.has(code));
+  if (!hasAny) {
+    throw new ForbiddenError(`Missing required permission: one of [${permissionCodes.join(", ")}]`);
+  }
+}
+
+/**
+ * Enforces that caller is a Superadmin.
+ * Administrative modules (settings, permissions management, etc.) require Superadmin access.
+ * Throws ForbiddenError if user is not Superadmin.
+ */
+export function requireSuperAdmin(user: AuthenticatedUser): void {
+  if (!user.isSuperAdmin && !user.roles.includes("SUPER_ADMIN") && !user.roles.includes("ORG_ADMIN")) {
+    throw new ForbiddenError("Superadmin privileges required to access this resource");
+  }
+}
+
+/**
+ * Enforces access to staff directory and administrative user management.
+ * Superadmin has full access. Authorized org admins with explicit user.manage permission are permitted.
+ * Operational staff are strictly prohibited from viewing or modifying administrative accounts.
+ */
+export function requireAdminUserAccess(user: AuthenticatedUser): void {
+  if (user.isSuperAdmin || user.roles.includes("SUPER_ADMIN")) {
+    return;
+  }
+  if (user.roles.includes("ORG_ADMIN") && user.permissions.has("user.manage")) {
+    return;
+  }
+  throw new ForbiddenError("Administrative staff management privileges required");
 }
 
 /**

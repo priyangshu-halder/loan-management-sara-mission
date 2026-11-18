@@ -46,3 +46,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed to create group" } }, { status: 500 });
   }
 }
+

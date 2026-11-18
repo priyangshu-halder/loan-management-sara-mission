@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/permissions/auth-guard";
 import { getLoanSchemes, createLoanScheme } from "@/modules/loans/loan-scheme-service";
-import { AppError } from "@/lib/errors/app-error";
+import { handleApiError } from "@/lib/errors/api-response";
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,11 +13,7 @@ export async function GET(req: NextRequest) {
     const schemes = await getLoanSchemes(user);
     return NextResponse.json({ schemes });
   } catch (err: unknown) {
-    if (err instanceof AppError) {
-      return NextResponse.json(err.toJSON(), { status: err.statusCode });
-    }
-    console.error("Loan schemes fetch error:", err);
-    return NextResponse.json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed to fetch loan schemes" } }, { status: 500 });
+    return handleApiError(err, "Failed to fetch loan schemes");
   }
 }
 
@@ -29,17 +25,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const scheme = await createLoanScheme(user, {
-      ...body,
+    const { version, ...rest } = body || {};
+    const payload = {
+      ...rest,
+      ...(version && typeof version === "object" ? version : {}),
       organizationId: user.organizationId,
-    });
+    };
+
+    const scheme = await createLoanScheme(user, payload);
 
     return NextResponse.json({ success: true, scheme }, { status: 201 });
   } catch (err: unknown) {
-    if (err instanceof AppError) {
-      return NextResponse.json(err.toJSON(), { status: err.statusCode });
-    }
-    console.error("Loan scheme create error:", err);
-    return NextResponse.json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Failed to create loan scheme" } }, { status: 500 });
+    return handleApiError(err, "Failed to create loan scheme");
   }
 }
+

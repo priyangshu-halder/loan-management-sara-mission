@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "@/lib/db/prisma";
 import { login } from "@/modules/identity/auth-service";
 import { createCollectionReceipt, allocateReceiptToLoan } from "./collection-receipt-service";
-import { ValidationError, ForbiddenError } from "@/lib/errors/app-error";
+import { ValidationError, ConflictError } from "@/lib/errors/app-error";
 
 describe("Collection receipt and allocation", () => {
   let adminUser: Awaited<ReturnType<typeof login>>["user"];
@@ -17,9 +17,21 @@ describe("Collection receipt and allocation", () => {
     });
     adminUser = loginRes.user;
 
+    const group = (await prisma.group.findFirst({
+      where: { organizationId: adminUser.organizationId },
+    })) ?? (await prisma.group.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        code: `GRP-RCPT-${Date.now().toString().slice(-6)}`,
+        name: "Collection Receipt Group",
+        status: "ACTIVE",
+      },
+    }));
+
     const customer = await prisma.customer.create({
       data: {
         organizationId: adminUser.organizationId,
+        groupId: group.id,
         customerCode: `COLL-CUST-${Date.now().toString().slice(-6)}`,
         fullName: "Collection Customer",
         phone: `+91-${Date.now().toString().slice(-9)}`,
@@ -173,6 +185,57 @@ describe("Collection receipt and allocation", () => {
         paymentMethod: "BANK_TRANSFER",
         reference: "DUP-RECEIPT-AGAIN",
       })
-    ).rejects.toThrow(ForbiddenError);
+    ).rejects.toThrow(ConflictError);
+  });
+
+  it("handles concurrent collection receipts safely and updates principal atomically (CONC-02)", async () => {
+    // Create a new loan account with exactly 20,000 principal
+    const concAccount = await prisma.loanAccount.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        customerId: (await prisma.customer.findFirstOrThrow()).id,
+        schemeId: (await prisma.loanScheme.findFirstOrThrow()).id,
+        loanAccountNumber: `CONC-LA-${Date.now().toString().slice(-8)}`,
+        principalDisbursed: "20000.0000",
+        principalOutstanding: "20000.0000",
+        status: "ACTIVE",
+      },
+    });
+
+    const receipt1 = `RCPT-C1-${Date.now().toString().slice(-6)}`;
+    const receipt2 = `RCPT-C2-${Date.now().toString().slice(-6)}`;
+
+    // Submit two concurrent collection receipts of 3,000 each in parallel
+    const [res1, res2] = await Promise.all([
+      createCollectionReceipt(adminUser, {
+        organizationId: adminUser.organizationId,
+        loanAccountId: concAccount.id,
+        cashAccountId,
+        receiptNumber: receipt1,
+        businessDate: "2026-10-12",
+        amount: "3000.0000",
+        paymentMethod: "CASH",
+        reference: "CONC-1",
+      }),
+      createCollectionReceipt(adminUser, {
+        organizationId: adminUser.organizationId,
+        loanAccountId: concAccount.id,
+        cashAccountId,
+        receiptNumber: receipt2,
+        businessDate: "2026-10-12",
+        amount: "3000.0000",
+        paymentMethod: "CASH",
+        reference: "CONC-2",
+      }),
+    ]);
+
+    expect(res1.status).toBe("POSTED");
+    expect(res2.status).toBe("POSTED");
+
+    // Both receipts of 3,000 must be subtracted: 20000 - 3000 - 3000 = 14000
+    const finalAccount = await prisma.loanAccount.findUnique({
+      where: { id: concAccount.id },
+    });
+    expect(finalAccount?.principalOutstanding).toBe("14000.0000");
   });
 });

@@ -1,7 +1,17 @@
 import React from "react";
-import { BookOpen, Receipt, Wallet, FileText, CheckCircle2 } from "lucide-react";
+import { BookOpen, Receipt, Wallet, CheckCircle2, Landmark } from "lucide-react";
 import { getCurrentUser, requirePermission } from "@/lib/permissions/auth-guard";
-import { getDaybook, getDailySheet, getChartOfAccounts } from "@/modules/accounting/ledger-service";
+import {
+  getDaybook,
+  getDailySheet,
+  getChartOfAccounts,
+  getCashbook,
+  getEarliestCashbookDate,
+} from "@/modules/accounting/ledger-service";
+import { DailySheetClient } from "./DailySheetClient";
+import CashbookClient from "./CashbookClient";
+import DaybookClient from "./DaybookClient";
+import { prisma } from "@/lib/db/prisma";
 import { getTodayBusinessDate, formatDisplayDate } from "@/lib/dates/dates";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -18,29 +28,84 @@ import {
 export default async function AccountingPage({
   searchParams,
 }: {
-  searchParams?: { tab?: string; date?: string };
+  searchParams?: {
+    tab?: string;
+    date?: string;
+    cashAccountId?: string;
+    startDate?: string;
+    endDate?: string;
+    voucherNumber?: string;
+    sourceModule?: string;
+    sourceType?: string;
+    search?: string;
+    customerOrMember?: string;
+    accountId?: string;
+    status?: string;
+    sortOrder?: "asc" | "desc";
+  };
 }) {
   const user = await getCurrentUser();
   if (!user) return null;
 
   requirePermission(user, "accounting.ledger.read");
 
-  const activeTab = searchParams?.tab || "daybook";
+  const rawTab = searchParams?.tab || "daybook";
+  const activeTab = rawTab === "daily-sheet" ? "dailysheet" : rawTab;
   const businessDate = searchParams?.date || getTodayBusinessDate();
 
-  const [daybookData, dailySheetData, accounts] = await Promise.all([
+  const selectedCashAccountId = searchParams?.cashAccountId;
+
+  const [daybookData, dailySheetData, accounts, cashAccounts] = await Promise.all([
     getDaybook(user, {
       organizationId: user.organizationId,
-      businessDate,
+      businessDate: searchParams?.date,
+      startDate: searchParams?.startDate,
+      endDate: searchParams?.endDate,
+      voucherNumber: searchParams?.voucherNumber,
+      sourceModule: searchParams?.sourceModule,
+      sourceType: searchParams?.sourceType,
+      search: searchParams?.search,
+      customerOrMember: searchParams?.customerOrMember,
+      accountId: searchParams?.accountId,
+      status: searchParams?.status,
+      sortOrder: searchParams?.sortOrder,
       page: 1,
-      pageSize: 50,
+      pageSize: 500,
     }),
     getDailySheet(user, {
       organizationId: user.organizationId,
       businessDate,
+      cashAccountId: selectedCashAccountId,
     }),
     getChartOfAccounts(user),
+    prisma.cashAccount.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: [{ accountType: "asc" }, { code: "asc" }],
+    }),
   ]);
+
+  const effectiveCashAccountId =
+    selectedCashAccountId ||
+    cashAccounts.find((c) => c.accountType === "CASH")?.id ||
+    cashAccounts[0]?.id;
+
+  const earliestDate =
+    activeTab === "cashbook" && effectiveCashAccountId
+      ? await getEarliestCashbookDate(user, user.organizationId, effectiveCashAccountId)
+      : businessDate;
+
+  const cashbookStartDate = searchParams?.startDate || earliestDate;
+  const cashbookEndDate = searchParams?.endDate || getTodayBusinessDate();
+
+  const cashbookData =
+    activeTab === "cashbook" && effectiveCashAccountId
+      ? await getCashbook(user, {
+          organizationId: user.organizationId,
+          cashAccountId: effectiveCashAccountId,
+          startDate: cashbookStartDate,
+          endDate: cashbookEndDate,
+        })
+      : null;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -76,7 +141,18 @@ export default async function AccountingPage({
           Daybook
         </a>
         <a
-          href="/accounting?tab=dailysheet"
+          href="/accounting?tab=cashbook"
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "cashbook"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <Landmark className="h-4 w-4" />
+          Cashbook
+        </a>
+        <a
+          href="/accounting?tab=daily-sheet"
           className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "dailysheet"
               ? "border-blue-600 text-blue-600"
@@ -101,146 +177,42 @@ export default async function AccountingPage({
 
       {/* Daybook Tab */}
       {activeTab === "daybook" && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Daybook ({formatDisplayDate(businessDate)})</CardTitle>
-                <CardDescription>
-                  Chronological record of all vouchers posted on {businessDate}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-4 text-xs font-semibold">
-                <span className="text-slate-700">
-                  Total Debit: ₹{parseFloat(daybookData.totals.totalDebit).toFixed(2)}
-                </span>
-                <span className="text-slate-700">
-                  Total Credit: ₹{parseFloat(daybookData.totals.totalCredit).toFixed(2)}
-                </span>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Voucher No</TableHead>
-                  <TableHead>Source Module</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Debits (₹)</TableHead>
-                  <TableHead>Credits (₹)</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {daybookData.entries.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6}>
-                      <TableEmptyState message={`No vouchers posted on ${businessDate}.`} />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  daybookData.entries.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell className="font-mono text-xs font-semibold text-blue-600">
-                        {entry.entryNumber}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="neutral" className="text-[11px]">
-                          {entry.sourceModule}:{entry.sourceType}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-slate-700">
-                        {entry.description}
-                        <div className="mt-1 space-y-0.5">
-                          {entry.lines.map((l) => (
-                            <div key={l.id} className="text-[11px] text-slate-500 font-mono">
-                              {l.account.code} {l.account.name}: {parseFloat(l.debit.toString()) > 0 ? `Dr ₹${parseFloat(l.debit.toString()).toFixed(2)}` : `Cr ₹${parseFloat(l.credit.toString()).toFixed(2)}`}
-                            </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs font-semibold text-slate-900">
-                        ₹{parseFloat(entry.totalDebit.toString()).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs font-semibold text-slate-900">
-                        ₹{parseFloat(entry.totalCredit.toString()).toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={entry.status === "POSTED" ? "success" : "danger"}
-                          className="text-[11px]"
-                        >
-                          {entry.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <DaybookClient
+          data={daybookData as any}
+          accounts={accounts}
+          initialFilters={{
+            startDate: searchParams?.startDate,
+            endDate: searchParams?.endDate,
+            voucherNumber: searchParams?.voucherNumber,
+            sourceModule: searchParams?.sourceModule,
+            sourceType: searchParams?.sourceType,
+            search: searchParams?.search,
+            accountId: searchParams?.accountId,
+            status: searchParams?.status,
+            sortOrder: searchParams?.sortOrder,
+          }}
+        />
+      )}
+
+      {/* Cashbook Tab */}
+      {activeTab === "cashbook" && cashbookData && (
+        <CashbookClient
+          data={cashbookData}
+          cashAccounts={cashAccounts}
+          selectedCashAccountId={effectiveCashAccountId}
+          startDate={cashbookStartDate}
+          endDate={cashbookEndDate}
+          earliestDate={earliestDate}
+        />
       )}
 
       {/* Daily Sheet Tab */}
       {activeTab === "dailysheet" && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Daily Cash & Bank Reconciliation Sheet</CardTitle>
-                  <CardDescription>
-                    Opening, receipts, payments, and closing balances for {formatDisplayDate(businessDate)}
-                  </CardDescription>
-                </div>
-                <Badge variant={dailySheetData.reconciliation.isReconciled ? "success" : "danger"}>
-                  {dailySheetData.reconciliation.isReconciled ? "Reconciled" : "Discrepancy"}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Account Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Opening (₹)</TableHead>
-                    <TableHead>Receipts (₹)</TableHead>
-                    <TableHead>Payments (₹)</TableHead>
-                    <TableHead>Closing (₹)</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dailySheetData.accountSummaries.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6}>
-                        <TableEmptyState message="No cash or bank accounts configured." />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    dailySheetData.accountSummaries.map((acc) => (
-                      <TableRow key={acc.accountId}>
-                        <TableCell>
-                          <div className="font-semibold text-slate-900">{acc.name}</div>
-                          <div className="font-mono text-xs text-slate-400">{acc.code}</div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="neutral">{acc.accountType}</Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">₹{parseFloat(acc.openingBalance).toFixed(2)}</TableCell>
-                        <TableCell className="font-mono text-xs text-emerald-600 font-semibold">+₹{parseFloat(acc.receipts).toFixed(2)}</TableCell>
-                        <TableCell className="font-mono text-xs text-rose-600 font-semibold">-₹{parseFloat(acc.payments).toFixed(2)}</TableCell>
-                        <TableCell className="font-mono text-xs font-bold text-slate-900">₹{parseFloat(acc.closingBalance).toFixed(2)}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
+        <DailySheetClient
+          data={dailySheetData as any}
+          currentUserId={user.userId}
+          currentUserName={user.fullName}
+        />
       )}
 
       {/* Chart of Accounts Tab */}
@@ -305,4 +277,3 @@ export default async function AccountingPage({
     </div>
   );
 }
-

@@ -23,51 +23,70 @@ more automated tests or documented UAT cases.
 -   [ ] Sensitive exports and privileged access are logged according to
     policy.
 
-## 2. Loan schemes
+## 2. Loan schemes (Manually Configured Scheme System)
 
--   [ ] Authorized users can create and configure a loan scheme.
--   [ ] Scheme validation rejects invalid amounts, terms, rates,
-    frequencies, and incompatible settings.
--   [ ] A schedule preview is available before a scheme is published.
--   [ ] Published scheme changes are versioned and do not silently alter
-    existing accounts.
--   [ ] Each loan account records the exact scheme version used.
+-   [x] Authorized users can create and configure a loan scheme using Scheme Code, Scheme Name, Loan Amount (Principal), Repayment Period (Months), Total Repayment Amount, and Terms & Conditions.
+-   [x] Legacy fields (Interest Rate, Interest Calculation Method, Minimum/Maximum Principal, Grace Period, Initial Status) are retired from the UI and backend validation.
+-   [x] Scheme validation rejects Total Repayment Amount < Loan Amount, zero/negative repayment duration, and non-numeric or negative amounts.
+-   [x] Maker retains complete manual control over Total Repayment Amount without any automated interest formulas or predefined percentages.
+-   [x] A schedule preview calculates `Monthly Installment = Total Repayment Amount / Repayment Period`, clearly labeled as an indicative schedule calculation and not an interest calculation.
+-   [x] Rounding remainders for uneven installment divisions are distributed across installments using integer minor units, guaranteeing `sum(installments) === totalRepaymentAmount` exactly.
+-   [x] Published scheme updates create new versions and never silently alter existing loan accounts or schedules.
+-   [x] Historical loan schemes and existing loan records remain fully accessible and auditable.
+
+### 2.1 Scenario Acceptance Tests
+
+-   [x] **Scenario A (Standard):** Principal ₹50,000, 12 months, Total Repayment ₹54,000 $\rightarrow$ Monthly installment ₹4,500, sum equals ₹54,000.
+-   [x] **Scenario B (Higher Repayment):** Principal ₹50,000, 12 months, Total Repayment ₹60,000 $\rightarrow$ Monthly installment ₹5,000, sum equals ₹60,000.
+-   [x] **Scenario C (Uneven Division):** Principal ₹10,000, 3 months, Total Repayment ₹10,000 $\rightarrow$ Installments ₹3,333.33, ₹3,333.33, ₹3,333.34, sum equals ₹10,000.00 exactly.
+-   [x] **Scenario D (Loan Creation & Modification Isolation):** Loan application snapshots scheme principal and total repayment. Subsequent scheme edits do not modify the existing loan or schedule.
+-   [x] **Scenario E (Repayment & Balance Reduction):** For ₹50,000 principal / ₹54,000 total repayable, collecting ₹4,500 leaves ₹49,500 outstanding; collecting another ₹5,500 leaves ₹44,000 outstanding.
+-   [x] **Scenario F (Historical Compatibility):** Pre-existing loans created under formula-based schemes continue to report, calculate, and collect without errors or schema conflicts.
 
 ## 3. Loan applications
 
--   [ ] Authorized users can create and save a draft application.
--   [ ] An application cannot be submitted without required fields and
-    configured documents.
--   [ ] Only permitted users can review, approve, reject, or withdraw an
-    application.
--   [ ] Rejection requires a reason; decisions retain actor and
-    timestamp.
+-   [x] Authorized users can create and save an application selecting a loan scheme.
+-   [x] Selecting a loan scheme automatically populates the principal amount, repayment period, and total repayment amount.
+-   [x] The loan application stores a snapshot of the contractual total repayment amount.
+-   [ ] An application cannot be submitted without required fields and configured documents.
+-   [ ] Only permitted users can review, approve, reject, or withdraw an application.
+-   [ ] Rejection requires a reason; decisions retain actor and timestamp.
 -   [ ] Invalid state transitions are rejected server-side.
 -   [ ] A disbursement cannot be created for an unapproved application.
 
 ## 4. Loan disbursement and accounts
 
--   [ ] Disbursement validates approved amount, borrower status, payment
-    source, and required approvals.
--   [ ] Repeated submissions do not create duplicate disbursements or
-    accounts.
--   [ ] Disbursement, loan account, schedule, receipt/voucher, and
-    journal posting succeed or fail atomically.
--   [ ] Every posted disbursement creates balanced accounting entries.
--   [ ] Loan account view shows principal, interest, fees, penalties,
-    paid amount, outstanding amount, arrears, next due date, and
-    transaction history.
--   [ ] Account calculations match approved test fixtures.
--   [ ] Posted disbursement cannot be silently edited or deleted.
+-   [x] Disbursement validates approved amount, borrower status, payment source, and required approvals.
+-   [x] Repeated submissions do not create duplicate disbursements or accounts (idempotent).
+-   [x] Disbursement generates the repayment schedule derived directly from `totalRepaymentAmount` without separate interest formulas.
+-   [x] Disbursement initializes `LoanAccount` snapshotting `principalDisbursed`, `totalRepaymentAmount`, `termMonths`, `totalPaid = 0.00`, and `principalOutstanding = totalRepaymentAmount`.
+-   [x] Disbursement, loan account, schedule, receipt/voucher, and journal posting succeed or fail atomically.
+-   [x] Every posted disbursement creates balanced accounting entries (Debit Loan Portfolio Asset, Credit Cash/Bank).
+-   [x] Loan account view displays Disbursed Principal, Total Repayable, Total Collected, and Outstanding Balance.
+-   [x] Account calculations match approved test fixtures.
+-   [x] Posted disbursement cannot be silently edited or deleted.
 
-## 5. Group management
+## 5. Customer and group management
 
--   [ ] Authorized users can create groups and assign members and
-    agents.
+-   [ ] Every customer must have a valid group selected on creation (`/customers/new`) and editing (`/customers/[id]/edit`).
+-   [ ] Creating or updating a customer without a group is rejected both client-side and server-side.
+-   [ ] The selected group must exist in the caller's organization and fall within their permitted branch scope.
+-   [ ] Authorized users can create groups and assign members and agents.
 -   [ ] Membership and assignment changes preserve history.
--   [ ] Collection access follows current authorization scope without
-    rewriting historical attribution.
+-   [ ] Collection access follows current authorization scope without rewriting historical attribution.
 -   [ ] Group reports use the requested business date and scope.
+
+## 5.1 Customer documents and profile hygiene
+
+-   [ ] Customer creation and edit forms support an optional Application Form document upload.
+-   [ ] Accepted document formats: Images (JPG, PNG, WEBP), PDF, DOC, DOCX up to 10MB.
+-   [ ] Client UI displays selected file name and size, providing replacement and removal controls before and after upload.
+-   [ ] Unsupported file formats or oversized files (>10MB) are rejected with clear validation messages.
+-   [ ] File binaries are stored securely outside the public web root; metadata is stored in `customer_documents`.
+-   [ ] If customer creation fails, newly written storage files are automatically cleaned up to prevent orphaned files.
+-   [ ] Authorized users can stream/download application form documents via authenticated endpoint `/api/customers/[id]/documents/application-form`; direct public URLs are forbidden.
+-   [ ] Borrower bank account fields (`bankAccountHolderName`, `bankAccountNumber`, `bankIfscCode`, etc.) are completely removed from UI, validation schemas, export routines, and the database schema.
+-   [ ] Form inputs, textareas, and dropdown menus render with solid visible backgrounds, high contrast text and placeholders, and clear focus indicators.
 
 ## 6. Collections
 
@@ -144,15 +163,39 @@ more automated tests or documented UAT cases.
 -   [ ] Every journal entry references a source transaction or approved
     manual journal.
 -   [ ] Financial transaction and journal posting are atomic.
--   [ ] Cashbook opening + receipts − payments equals closing balance
-    for each selected account/period, accounting for transfers and
-    reversals correctly.
--   [ ] Daybook lists posted vouchers/journals in the selected period
-    with correct debit/credit totals.
--   [ ] Daily sheet opening, receipts, payments, and closing totals
-    reconcile to posted transactions.
--   [ ] Closed accounting periods reject ordinary backdated postings;
-    reopening requires elevated permission and audit.
+-   [x] Cashbook opening + receipts − payments equals closing balance for each selected account/period, accounting for transfers and reversals correctly.
+-   [x] Cashbook displays as a clean, date-wise financial table only, with one row per calendar/business date in ascending chronological order (no summary cards, charts, graphs, or individual transaction cards).
+-   [x] Default starting date resolves to earliest available cashbook date; default ending date resolves to today's business date; custom date range selection is supported.
+-   [x] Every business date within selected range is included, displaying 0.00 or — for empty days without omitting dates, while continuously carrying forward Opening and Cash in Hand.
+-   [x] Cashbook table renders exactly 17 columns in strict order: Date, Opening, Advance, Repayment, RD, FD, Bank Transfer (Received), Loan, Miscellaneous (Received), Total Received, Savings Withdrawal, Bank Transfer (Payment), Loan Payment, Expenses, Miscellaneous (Payment), Total Payment, Cash in Hand.
+-   [x] Total Received strictly excludes Opening; Total Payment is the exact sum of the 5 payment categories; Cash in Hand = Opening + Total Received - Total Payment.
+-   [x] Internal bank transfers are correctly classified (cash-to-bank reduces physical cash, bank-to-cash increases physical cash, bank-to-bank does not affect physical cash) without inflating income or expenses.
+-   [x] Sticky bottom summary row correctly displays category column totals, period initial opening, and final cash in hand (never sums daily openings or cash in hand).
+-   [x] Negative Cash in Hand is clearly highlighted as a warning on affected rows without zeroing or masking the deficit.
+-   [x] Reconciles 100% with Daily Sheet, Daybook, and underlying double-entry ledger.
+-   [x] Daybook acts as a complete daily transaction register displaying all accounting transactions (loans, collections, deposits, withdrawals, transfers, expenses, adjustments, reversals) across all operational modules.
+-   [x] Daybook records are organized date-wise with distinct date headings and transaction counts, excluding empty dates without transactions.
+-   [x] Displays 10-column table per date: Voucher No., Transaction Date, Source Module, Transaction Type, Reference, Description, Debit, Credit, Status, Action.
+-   [x] Complete double-entry accounting breakdown is viewable inline and in detail modals, proving total debits equal total credits for every voucher.
+-   [x] Daily totals reconcile: Number of vouchers, Daily Total Debit, and Daily Total Credit (Dr = Cr).
+-   [x] Overall period totals reconcile at the bottom of the page across all filtered vouchers.
+-   [x] Comprehensive filters supported: date range, voucher number, source module, transaction type, customer/member/reference search, GL account, and status.
+-   [x] Reversals preserve links to original vouchers and maintain historical immutability.
+-   [x] Daybook, Cashbook, and Daily Sheet have clearly separated responsibilities and reconcile 100% against the authoritative ledger without duplicate postings.
+-   [x] Daily sheet displays 3 main sections: Received (9 categories), Payment (6 categories), and Daily Cash Summary with prominent CASH IN HAND.
+-   [x] Closing cash is calculated as: Closing Cash = Opening Cash + Cash Received - Cash Payment.
+-   [x] Previous day's finalized closing cash automatically carries forward as the next day's opening cash.
+-   [x] Authorized users can establish initial baseline opening balance for the first day of operation.
+-   [x] Backdated transactions after finalization trigger an auditable discrepancy notice without silently overwriting historical snapshots.
+-   [x] Internal bank transfers are accounted for without creating artificial income, expense, or double counting.
+-   [x] Negative cash in hand balances are clearly highlighted as discrepancies and never silently converted to zero.
+-   [x] Test A (Basic Reconciliation): Reconciles Opening (₹10,000), Advance (₹2,000), Repayment (₹5,000), RD (₹1,000), FD (₹2,000), Misc (₹500), Savings Withdrawal (₹1,500), Expenses (₹1,000) to Total Received (₹10,500), Total Payment (₹2,500), and Closing Cash (₹18,000).
+-   [x] Test B (Next-day Carry Forward): Day 1 closing (₹18,000) automatically carries forward to Day 2 opening, reconciling with Day 2 receipts (₹4,000) and payments (₹2,000) to Closing Cash (₹20,000).
+-   [x] Test C (Idle Day): Accurately maintains Opening (₹5,000) to Closing (₹5,000) with zero receipts and payments.
+-   [x] Test D (Negative Balance): Opening (₹1,000) + Receipts (₹500) - Payments (₹2,000) produces Closing Cash of -₹500 with prominent discrepancy warning.
+-   [x] Test E (Bank Transfers): Verifies cash-to-bank and bank-to-cash internal transfers correctly adjust cash-in-hand without inflating revenue or expenses.
+-   [x] Test F (Transaction Integrity): Reversals and cancelled transactions correctly negate without inflating category sums or double counting.
+-   [x] Closed accounting periods reject ordinary backdated postings; reopening requires elevated permission and audit.
 -   [ ] Reconciliation exceptions are visible and cannot be silently
     dismissed.
 -   [ ] Operational balances reconcile to ledger balances and can be

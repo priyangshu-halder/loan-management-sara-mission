@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ShieldCheck, Lock, User, Building2 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
@@ -14,6 +14,30 @@ export default function LoginPage() {
   const [password, setPassword] = useState("Admin@12345");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [branding, setBranding] = useState<{
+    appName: string;
+    companyName: string;
+    companyLogo: string | null;
+  }>({
+    appName: "Rayhan Microfinance ERP",
+    companyName: "Rayhan Financial Services",
+    companyLogo: null,
+  });
+
+  useEffect(() => {
+    fetch(`/api/settings/public?organizationCode=${organizationCode}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.settings) {
+          setBranding({
+            appName: data.settings.appName || "Rayhan Microfinance ERP",
+            companyName: data.settings.companyName || "Rayhan Financial Services",
+            companyLogo: data.settings.companyLogo || null,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [organizationCode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,14 +76,20 @@ export default function LoginPage() {
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-slate-50">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 text-white font-extrabold text-xl shadow-md mb-3">
-            ₹
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white border border-slate-200 text-white shadow-md mb-3 overflow-hidden p-1">
+            {branding.companyLogo ? (
+              <img src={branding.companyLogo} alt="Logo" className="w-full h-full object-contain" />
+            ) : (
+              <div className="w-full h-full rounded-xl bg-blue-600 flex items-center justify-center font-extrabold text-xl text-white">
+                ₹
+              </div>
+            )}
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Rayhan Microfinance ERP
+            {branding.appName}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Sign in to your staff portal account
+            {branding.companyName} · Staff Portal
           </p>
         </div>
 

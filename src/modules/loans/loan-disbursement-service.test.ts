@@ -21,9 +21,21 @@ describe("Loan disbursement and loan account creation", () => {
 
     const suffix = Date.now().toString().slice(-6);
 
+    const group = (await prisma.group.findFirst({
+      where: { organizationId: adminUser.organizationId },
+    })) ?? (await prisma.group.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        code: `GRP-DISB-${suffix}`,
+        name: `Disbursement Group ${suffix}`,
+        status: "ACTIVE",
+      },
+    }));
+
     const customer = await prisma.customer.create({
       data: {
         organizationId: adminUser.organizationId,
+        groupId: group.id,
         customerCode: `DISB-CUST-${suffix}`,
         fullName: "Disbursement Customer",
         phone: `+91-900000${suffix}`,
@@ -108,6 +120,11 @@ describe("Loan disbursement and loan account creation", () => {
 
     expect(loanAccount).not.toBeNull();
     expect(loanAccount?.principalOutstanding.toString()).toBe("100000.0000");
+
+    const updatedApp = await prisma.loanApplication.findUnique({
+      where: { id: applicationId },
+    });
+    expect(updatedApp?.status).toBe("DISBURSED");
   });
 
   it("rejects disbursements for non-approved applications and duplicates", async () => {

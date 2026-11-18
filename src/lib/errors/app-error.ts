@@ -5,6 +5,7 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "UNPROCESSABLE_ENTITY"
+  | "TOO_MANY_REQUESTS"
   | "INVARIANT_VIOLATION"
   | "INTERNAL_SERVER_ERROR";
 
@@ -73,6 +74,12 @@ export class ValidationError extends AppError {
 export class InvariantViolationError extends AppError {
   constructor(message: string) {
     super(`Accounting/Financial invariant violated: ${message}`, "INVARIANT_VIOLATION", 500);
+  }
+}
+
+export class TooManyRequestsError extends AppError {
+  constructor(message = "Too many requests, please try again later") {
+    super(message, "TOO_MANY_REQUESTS", 429);
   }
 }
 

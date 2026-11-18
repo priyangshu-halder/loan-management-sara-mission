@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, Building, UserCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import type { PublicSettings } from "@/modules/settings/settings-service";
 
 export interface NavbarProps {
   user: {
@@ -14,9 +14,10 @@ export interface NavbarProps {
     roles: string[];
     scopes: Array<{ scopeType: string; branchCode?: string | null }>;
   };
+  branding?: PublicSettings;
 }
 
-export function Navbar({ user }: NavbarProps) {
+export function Navbar({ user, branding }: NavbarProps) {
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -33,7 +34,6 @@ export function Navbar({ user }: NavbarProps) {
   };
 
   const primaryRole = user.roles[0] || "STAFF";
-  const branchScope = user.scopes.find((s) => s.scopeType === "BRANCH");
 
   return (
     <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 shrink-0">
@@ -41,10 +41,10 @@ export function Navbar({ user }: NavbarProps) {
         <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-slate-100 py-1 px-2.5 rounded-md">
           <Building className="h-3.5 w-3.5 text-slate-500" />
           <span>Tenant: <strong className="text-slate-800">{user.organizationCode}</strong></span>
+          {branding?.companyName && (
+            <span className="hidden md:inline text-slate-400 font-normal">| {branding.companyName}</span>
+          )}
         </div>
-        {branchScope?.branchCode && (
-          <Badge variant="info">Branch: {branchScope.branchCode}</Badge>
-        )}
       </div>
 
       <div className="flex items-center gap-4">

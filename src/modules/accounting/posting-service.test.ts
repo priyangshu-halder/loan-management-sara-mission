@@ -269,6 +269,53 @@ describe("Accounting Foundation and Posting Engine", () => {
       expect(sheet.accountSummaries.length).toBeGreaterThan(0);
     });
 
+    it("includes backdated postings in cashbook opening balance without date skew (FIN-03)", async () => {
+      const cashAcc = await prisma.cashAccount.findUniqueOrThrow({ where: { id: cashAccountRecordId } });
+      const equityAcc = await prisma.chartOfAccount.findUniqueOrThrow({
+        where: { organizationId_code: { organizationId: adminUser.organizationId, code: "3001" } },
+      });
+
+      const cashbookBefore = await getCashbook(adminUser, {
+        organizationId: adminUser.organizationId,
+        cashAccountId: cashAccountRecordId,
+        startDate: "2026-10-15",
+        endDate: "2026-10-31",
+      });
+      const openingBefore = parseFloat(cashbookBefore.openingBalance);
+
+      await postJournalEntry(adminUser, {
+        organizationId: adminUser.organizationId,
+        businessDate: "2026-10-10",
+        sourceModule: "MANUAL",
+        sourceType: "BACKDATED_TEST",
+        description: "Backdated test entry for opening balance",
+        lines: [
+          {
+            accountId: cashAcc.chartOfAccountId,
+            debit: 750,
+            credit: 0,
+            narration: "Debit cash backdated",
+          },
+          {
+            accountId: equityAcc.id,
+            debit: 0,
+            credit: 750,
+            narration: "Credit retained earnings",
+          },
+        ],
+      });
+
+      const cashbookAfter = await getCashbook(adminUser, {
+        organizationId: adminUser.organizationId,
+        cashAccountId: cashAccountRecordId,
+        startDate: "2026-10-15",
+        endDate: "2026-10-31",
+      });
+
+      const openingAfter = parseFloat(cashbookAfter.openingBalance);
+      expect(Math.abs(openingAfter - (openingBefore + 750))).toBeLessThan(0.0001);
+    });
+
     it("verifies daybook totals match sum of debit and credit lines", async () => {
       const daybook = await getDaybook(adminUser, {
         organizationId: adminUser.organizationId,

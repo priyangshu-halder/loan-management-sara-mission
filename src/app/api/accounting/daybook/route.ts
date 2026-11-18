@@ -15,8 +15,16 @@ export async function GET(req: NextRequest) {
     const startDate = searchParams.get("startDate") || undefined;
     const endDate = searchParams.get("endDate") || undefined;
     const branchId = searchParams.get("branchId") || undefined;
+    const voucherNumber = searchParams.get("voucherNumber") || undefined;
+    const sourceModule = searchParams.get("sourceModule") || undefined;
+    const sourceType = searchParams.get("sourceType") || undefined;
+    const search = searchParams.get("search") || undefined;
+    const customerOrMember = searchParams.get("customerOrMember") || undefined;
+    const accountId = searchParams.get("accountId") || undefined;
+    const status = searchParams.get("status") || undefined;
+    const sortOrder = (searchParams.get("sortOrder") as "asc" | "desc") || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
-    const pageSize = parseInt(searchParams.get("pageSize") || "20", 10);
+    const pageSize = parseInt(searchParams.get("pageSize") || "100", 10);
 
     const result = await getDaybook(user, {
       organizationId: user.organizationId,
@@ -24,6 +32,14 @@ export async function GET(req: NextRequest) {
       businessDate,
       startDate,
       endDate,
+      voucherNumber,
+      sourceModule,
+      sourceType,
+      search,
+      customerOrMember,
+      accountId,
+      status,
+      sortOrder,
       page,
       pageSize,
     });

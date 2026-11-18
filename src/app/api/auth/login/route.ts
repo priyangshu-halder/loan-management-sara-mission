@@ -3,6 +3,7 @@ import { loginSchema } from "@/lib/validation/schemas";
 import { login } from "@/modules/identity/auth-service";
 import { sessionCookieOptions } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors/app-error";
+import { enforceRateLimit, clearRateLimit } from "@/lib/security/rate-limiter";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,6 +26,10 @@ export async function POST(req: NextRequest) {
     const ipAddress = req.headers.get("x-forwarded-for") || req.ip || undefined;
     const userAgent = req.headers.get("user-agent") || undefined;
 
+    // Defense-in-depth: Rate limit login attempts to 5 requests per minute per IP + username
+    const rateLimitKey = `auth_login:${ipAddress || "client"}:${parsed.data.username}`;
+    enforceRateLimit(rateLimitKey, { windowMs: 60_000, maxRequests: 5 });
+
     const result = await login({
       organizationCode: parsed.data.organizationCode,
       username: parsed.data.username,
@@ -32,6 +37,9 @@ export async function POST(req: NextRequest) {
       ipAddress,
       userAgent,
     });
+
+    // Clear rate limiter tracking on successful authentication
+    clearRateLimit(rateLimitKey);
 
     const response = NextResponse.json({
       success: true,

@@ -5,8 +5,11 @@ import {
   createLoanScheme,
   publishLoanScheme,
   previewLoanScheme,
+  updateLoanScheme,
+  deleteLoanScheme,
+  getLoanSchemeById,
 } from "./loan-scheme-service";
-import { ConflictError, ValidationError } from "@/lib/errors/app-error";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors/app-error";
 
 describe("Loan scheme management", () => {
   let adminUser: Awaited<ReturnType<typeof login>>["user"];
@@ -116,5 +119,146 @@ describe("Loan scheme management", () => {
     expect(preview.schemeId).toBe(scheme.id);
     expect(preview.requiresManualApproval).toBe(true);
     expect(preview.notes).toContain("TODO");
+  });
+
+  it("updates a draft loan scheme in-place", async () => {
+    const draftCode = `MSME-DFT-${Date.now().toString().slice(-6)}`;
+    const scheme = await createLoanScheme(adminUser, {
+      organizationId: adminUser.organizationId,
+      code: draftCode,
+      name: "Original Draft Scheme",
+      minPrincipal: "10000.0000",
+      maxPrincipal: "50000.0000",
+      termMonths: 12,
+      interestRate: "12.0000",
+      interestMethod: "REDUCING_BALANCE",
+      repaymentFrequency: "MONTHLY",
+      gracePeriodDays: 0,
+      status: "DRAFT",
+    });
+
+    const updated = await updateLoanScheme(adminUser, {
+      organizationId: adminUser.organizationId,
+      schemeId: scheme.id,
+      name: "Updated Draft Scheme Name",
+      minPrincipal: "15000.0000",
+      maxPrincipal: "60000.0000",
+      termMonths: 18,
+    });
+
+    expect(updated.name).toBe("Updated Draft Scheme Name");
+    expect(updated.versions.length).toBe(1);
+    expect(updated.versions[0].versionNumber).toBe(1);
+    expect(updated.versions[0].minPrincipal).toBe("15000.0000");
+    expect(updated.versions[0].maxPrincipal).toBe("60000.0000");
+    expect(updated.versions[0].termMonths).toBe(18);
+  });
+
+  it("updates a published loan scheme by generating a new version", async () => {
+    const pubCode = `MSME-PUB-${Date.now().toString().slice(-6)}`;
+    const scheme = await createLoanScheme(adminUser, {
+      organizationId: adminUser.organizationId,
+      code: pubCode,
+      name: "Published Product v1",
+      minPrincipal: "20000.0000",
+      maxPrincipal: "100000.0000",
+      termMonths: 12,
+      interestRate: "10.0000",
+      interestMethod: "REDUCING_BALANCE",
+      repaymentFrequency: "MONTHLY",
+      gracePeriodDays: 0,
+      status: "PUBLISHED",
+    });
+
+    const updated = await updateLoanScheme(adminUser, {
+      organizationId: adminUser.organizationId,
+      schemeId: scheme.id,
+      interestRate: "11.5000",
+      termMonths: 24,
+    });
+
+    expect(updated.versions.length).toBe(2);
+    expect(updated.versions[0].versionNumber).toBe(2);
+    expect(updated.versions[0].interestRate).toBe("11.5000");
+    expect(updated.versions[0].termMonths).toBe(24);
+    // Prior version remains unchanged
+    expect(updated.versions[1].versionNumber).toBe(1);
+    expect(updated.versions[1].interestRate).toBe("10.0000");
+  });
+
+  it("deletes an unlinked loan scheme cleanly", async () => {
+    const delCode = `MSME-DEL-${Date.now().toString().slice(-6)}`;
+    const scheme = await createLoanScheme(adminUser, {
+      organizationId: adminUser.organizationId,
+      code: delCode,
+      name: "To Be Deleted",
+      minPrincipal: "10000.0000",
+      maxPrincipal: "50000.0000",
+      termMonths: 12,
+      interestRate: "12.0000",
+      interestMethod: "REDUCING_BALANCE",
+      repaymentFrequency: "MONTHLY",
+      gracePeriodDays: 0,
+      status: "DRAFT",
+    });
+
+    const delRes = await deleteLoanScheme(adminUser, scheme.id);
+    expect(delRes.success).toBe(true);
+
+    await expect(getLoanSchemeById(adminUser, scheme.id)).rejects.toThrow(NotFoundError);
+  });
+
+  it("rejects deleting a scheme that has active loan applications", async () => {
+    // Create customer and scheme
+    const group = (await prisma.group.findFirst({
+      where: { organizationId: adminUser.organizationId },
+    })) ?? (await prisma.group.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        code: `GRP-LNS-${Date.now().toString().slice(-6)}`,
+        name: "Loan Scheme Test Group",
+        status: "ACTIVE",
+      },
+    }));
+
+    const cust = await prisma.customer.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        groupId: group.id,
+        customerCode: `CUST-SCH-${Date.now().toString().slice(-6)}`,
+        fullName: "Test Customer Scheme Linked",
+        phone: `+9198${Date.now().toString().slice(-8)}`,
+        status: "ACTIVE",
+      },
+    });
+
+    const scheme = await createLoanScheme(adminUser, {
+      organizationId: adminUser.organizationId,
+      code: `LINK-SCH-${Date.now().toString().slice(-6)}`,
+      name: "Linked Scheme",
+      minPrincipal: "10000.0000",
+      maxPrincipal: "50000.0000",
+      termMonths: 12,
+      interestRate: "12.0000",
+      interestMethod: "REDUCING_BALANCE",
+      repaymentFrequency: "MONTHLY",
+      gracePeriodDays: 0,
+      status: "PUBLISHED",
+    });
+
+    // Create loan application referencing this scheme
+    await prisma.loanApplication.create({
+      data: {
+        organizationId: adminUser.organizationId,
+        customerId: cust.id,
+        schemeId: scheme.id,
+        requestedPrincipal: "20000.0000",
+        requestedTermMonths: 12,
+        purpose: "Inventory expansion",
+        status: "DRAFT",
+      },
+    });
+
+    await expect(deleteLoanScheme(adminUser, scheme.id)).rejects.toThrow(ConflictError);
   });
 });

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/permissions/auth-guard";
-import { getCashbook } from "@/modules/accounting/ledger-service";
+import { getCashbook, getEarliestCashbookDate } from "@/modules/accounting/ledger-service";
+import { getTodayBusinessDate } from "@/lib/dates/dates";
+import { prisma } from "@/lib/db/prisma";
 import { AppError } from "@/lib/errors/app-error";
 
 export async function GET(req: NextRequest) {
@@ -11,15 +13,30 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const cashAccountId = searchParams.get("cashAccountId");
-    const startDate = searchParams.get("startDate");
-    const endDate = searchParams.get("endDate");
+    let cashAccountId = searchParams.get("cashAccountId");
+    let startDate = searchParams.get("startDate");
+    let endDate = searchParams.get("endDate");
 
-    if (!cashAccountId || !startDate || !endDate) {
-      return NextResponse.json(
-        { error: { code: "BAD_REQUEST", message: "cashAccountId, startDate, and endDate parameters are required" } },
-        { status: 400 }
-      );
+    if (!cashAccountId) {
+      const defaultAcc = await prisma.cashAccount.findFirst({
+        where: { organizationId: user.organizationId, isActive: true },
+        orderBy: [{ accountType: "asc" }, { code: "asc" }],
+      });
+      if (!defaultAcc) {
+        return NextResponse.json(
+          { error: { code: "NOT_FOUND", message: "No active cash or bank accounts found." } },
+          { status: 404 }
+        );
+      }
+      cashAccountId = defaultAcc.id;
+    }
+
+    if (!startDate) {
+      startDate = await getEarliestCashbookDate(user, user.organizationId, cashAccountId);
+    }
+
+    if (!endDate) {
+      endDate = getTodayBusinessDate();
     }
 
     const result = await getCashbook(user, {

@@ -25,11 +25,17 @@ export const STANDARD_CHART_OF_ACCOUNTS = [
   { code: "4001", name: "Interest Income on Microloans", accountType: "INCOME", description: "Earned interest from active loan portfolio" },
   { code: "4002", name: "Loan Processing Fee Income", accountType: "INCOME", description: "Upfront documentation and loan processing fees" },
   { code: "4003", name: "Penalty and Late Fee Income", accountType: "INCOME", description: "Penalties collected on overdue installments" },
+  { code: "4004", name: "Deposit Penalty & Fee Income", accountType: "INCOME", description: "Premature withdrawal penalty and deposit charges" },
 
   // Expenses (5000 - 5999)
   { code: "5001", name: "Branch Rent & Office Expense", accountType: "EXPENSE", description: "Monthly premises rent and office supplies" },
   { code: "5002", name: "Bank Charges & Transaction Fees", accountType: "EXPENSE", description: "Commercial bank transaction fees" },
   { code: "5003", name: "Provision for Loan Impairment", accountType: "EXPENSE", description: "Expected credit loss and bad debt provisions" },
+  { code: "5004", name: "Interest Expense on Member Deposits", accountType: "EXPENSE", description: "Interest expense accrued/paid on savings, RD, and FD" },
+  { code: "5005", name: "Staff Salaries & Allowances", accountType: "EXPENSE", description: "Field and administrative staff compensation" },
+  { code: "5006", name: "Travel & Field Conveyance", accountType: "EXPENSE", description: "Loan recovery and collection field travel" },
+  { code: "5007", name: "Utilities & Communication", accountType: "EXPENSE", description: "Electricity, internet, telephone, and printing" },
+  { code: "5008", name: "General Operating & Administrative", accountType: "EXPENSE", description: "Audit, legal, software, and miscellaneous expenses" },
 ];
 
 export async function seedAccountingData() {

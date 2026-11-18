@@ -7,13 +7,6 @@
   --foreground: #0f172a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #090d16;
-    --foreground: #f1f5f9;
-  }
-}
-
 body {
   color: var(--foreground);
   background: var(--background);
@@ -21,3 +14,114 @@ body {
   min-height: 100vh;
 }
 
+@layer base {
+  /* Consistent, high-visibility form controls across all pages */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="hidden"]),
+  select,
+  textarea {
+    background-color: #ffffff;
+    color: #0f172a;
+    border-color: #cbd5e1;
+    color-scheme: light;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* Consistent border on hover */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="hidden"]):hover:not(:disabled),
+  select:hover:not(:disabled),
+  textarea:hover:not(:disabled) {
+    border-color: #94a3b8;
+  }
+
+  /* Consistent, prominent focus ring */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([type="hidden"]):focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  }
+
+  /* Accessible, readable placeholders */
+  input::placeholder,
+  textarea::placeholder {
+    color: #64748b;
+    opacity: 1;
+  }
+
+  /* Distinct disabled and read-only states */
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    background-color: #f1f5f9 !important;
+    color: #64748b !important;
+    border-color: #e2e8f0 !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+  }
+
+  input:read-only:not([type="button"]):not([type="submit"]):not(:disabled),
+  textarea:read-only:not(:disabled) {
+    background-color: #f8fafc;
+    color: #334155;
+    border-color: #cbd5e1;
+  }
+
+  /* Dropdown option visibility across all OS and browsers */
+  select option {
+    background-color: #ffffff;
+    color: #0f172a;
+    padding: 6px 12px;
+  }
+
+  /* Checkboxes and radio buttons */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: #2563eb;
+    color-scheme: light;
+  }
+}
+
+@media print {
+  @page {
+    size: auto;
+    margin: 10mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #printable-thermal-receipt,
+  #printable-thermal-receipt *,
+  #printable-collection-sheet,
+  #printable-collection-sheet * {
+    visibility: visible;
+  }
+  #printable-thermal-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 10px !important;
+  }
+  #printable-collection-sheet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+  }
+  #printable-collection-sheet table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

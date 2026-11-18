@@ -42,44 +42,65 @@ organization/branch by URL, query, or request-body tampering.
 ## Phase 2 --- Accounting foundation
 
 -   Define chart of accounts and fiscal periods.
--   Implement journal entry/header/line models and posting-rule
-    versions.
--   Implement posting service with balanced-journal invariant,
-    transaction rollback, idempotency, audit, and reversals.
--   Implement cash/bank accounts, cash sessions if required, cashbook,
-    daybook, daily sheet, and basic reconciliation.
--   Add seeded accounting scenarios and reconciliation tests.
+-   Implement journal entry/header/line models and posting-rule versions.
+-   Implement posting service with balanced-journal invariant, transaction rollback, idempotency, audit, and reversals.
+-   Implement cash/bank accounts, cashbook, daybook, and standard ledger reconciliation.
+-   **Complete Daily Sheet Redesign:**
+    -   Structured into 3 distinct sections: Received (9 categories), Payment (6 categories), and Daily Cash Summary with prominent CASH IN HAND.
+    -   Exact formula: $\text{Closing Cash} = \text{Opening Cash} + \text{Total Cash Received} - \text{Total Cash Payment}$.
+    -   Automated carry-forward state machine persisting daily snapshots (`DailyCashRecord`) with initial opening baseline setup and unfinalized status identification.
+    -   Internal bank transfer treatment adjusting physical cash-in-hand without inflating revenue or expenses.
+    -   Auditable backdated transaction variance tracking and re-finalization.
+-   **Complete Cashbook Redesign (Date-Wise Financial Table):**
+    -   Table-only UI with zero summary cards, charts, graphs, or individual transaction cards.
+    -   Chronological ascending daily rows for selected date range (defaulting to earliest available date up to today).
+    -   Full continuous date inclusion with zero omitted dates (empty dates display 0.00/— for categories with carry-forward opening/closing).
+    -   17 columns in strict required order: Date, Opening, Advance, Repayment, RD, FD, Bank Transfer (Received), Loan, Miscellaneous (Received), Total Received, Savings Withdrawal, Bank Transfer (Payment), Loan Payment, Expenses, Miscellaneous (Payment), Total Payment, Cash in Hand.
+    -   Summary row displaying category totals, initial period opening, and final cash in hand without summing daily balances.
+    -   Internal bank transfer classification and negative cash warning highlight.
+-   **Complete Daybook Redesign (Daily Transaction Register):**
+    -   Chronological transaction register of all accounting transactions across all modules.
+    -   Date-wise organisation with distinct date headings and voucher counts; excludes empty dates.
+    -   10-column table per date with complete double-entry breakdown inline and in detail modal.
+    -   Daily totals and overall period reconciliation ($Dr \equiv Cr$).
+    -   Multi-dimensional filtering (date range, voucher #, module, type, search, GL account, status).
+-   Add seeded accounting scenarios and reconciliation tests (Daily Sheet Tests A–F, Cashbook Tests 1–8, Daybook Tests 1–7).
 
-**Exit gate:** Every test posting balances; duplicate requests do not
-duplicate transactions; failed postings roll back completely.
+**Exit gate:** Every test posting balances; duplicate requests do not duplicate transactions; failed postings roll back completely; Daybook, Cashbook, and Daily Sheet reconcile 100% with zero mathematical or double-entry discrepancies.
 
 ## Phase 3 --- Customers, groups, and loan schemes
 
--   Customer registration and profile, document metadata/upload access
-    controls.
--   Group management, membership history, agent assignments, collection
-    day.
--   Loan scheme and immutable scheme versions.
--   Loan calculation engine with approved test fixtures and schedule
-    previews.
+-   Customer registration and profile with mandatory Center / Group selection
+    enforced server-side and client-side (`Customer.groupId` NOT NULL).
+-   Secure onboarding document storage abstraction (`StorageProvider`) supporting
+    Application Form uploads (Images, PDF, DOC, DOCX up to 10MB) outside public web root.
+-   Removal of redundant borrower bank account fields from customer models, UI forms,
+    and exports.
+-   Consistent high-contrast form control design system (`Input`, `Select`, `Textarea`).
+-   Group management, membership history, agent assignments, collection day.
+-   **Complete Loan Scheme Redesign:** Transition from formula-based interest schemes to manually defined loan schemes:
+    -   Fields: Scheme Code, Scheme Name, Loan Amount (Principal), Repayment Period (Months), Total Repayment Amount, Terms & Conditions.
+    -   Retired fields: Interest Rate, Interest Calculation Method, Min/Max Principal, Grace Period, Initial Status.
+    -   Maker full control over total repayment amount; validation enforces total repayment $\ge$ loan amount.
+    -   Installment breakdown engine distributing rounding remainders in integer minor units guaranteeing exact sum matching total repayment amount.
+    -   Historical scheme version compatibility preserved via nullable columns.
 
 **Exit gate:** Calculation results match business-approved examples for
-normal, boundary, leap-year/date, early-payment, and rounding cases as
-applicable.
+Scenarios A, B, C (uneven division), normal, boundary, leap-year/date, and rounding cases.
 
 ## Phase 4 --- Loan application and disbursement
 
--   Application creation, submission, review, approve/reject,
-    conditions, and decision history.
+-   Application creation with scheme selection auto-populating principal, period, and total repayment amount.
+-   Application snapshots `totalRepaymentAmount`.
 -   Maker-checker workflow and rejection/resubmission.
--   Disbursement workflow, payment source, receipt/voucher, accounting
-    posting, and loan-account creation.
--   Loan account overview, schedule, balance breakdown, and transaction
-    history.
+-   Disbursement workflow snapshotting `principalDisbursed`, `totalRepaymentAmount`, and `termMonths`, initializing `principalOutstanding = totalRepaymentAmount`.
+-   Double-entry journal posting, cashbook balance verification, and loan-account creation.
+-   Loan account overview showing Disbursed Principal, Total Repayable, Total Collected, and Outstanding Balance.
+-   Isolation guarantee: subsequent scheme changes never alter existing disbursed loans (Scenario D).
 
 **Exit gate:** Disbursement is impossible before approval; duplicate
 requests cannot disburse twice; ledger and loan-account balances
-reconcile.
+reconcile; schedule sum matches total contractual obligation exactly.
 
 ## Phase 5 --- Collections
 
